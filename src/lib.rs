@@ -17,6 +17,9 @@ mod readme {}
 
 extern crate alloc;
 
+#[cfg(feature = "std")]
+extern crate std;
+
 use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
 use core::{
 	borrow::Borrow,
@@ -31,20 +34,71 @@ use core::{
 use tap::{Pipe, Tap};
 use typed_arena::Arena;
 
+/// [`Some`]-ness of [`Index::1`] indicates initialisation status of [`Index::0`].
+type Index<K, V> = Vec<(MaybeUninit<K>, Option<NonNull<V>>)>;
+
+/// A keyed list reprojector.
 pub struct Linotype<K, V> {
-	hot_index: Vec<(MaybeUninit<K>, Option<NonNull<V>>)>,
-	cold_index: Vec<(MaybeUninit<K>, Option<NonNull<V>>)>,
-	values: Arena<V>,
+	live: Index<K, V>,
+	stale: Index<K, V>,
+	storage: Arena<V>,
+	dropped: Vec<NonNull<V>>,
+}
+
+impl<K, V> Default for Linotype<K, V> {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
+fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut Vec<NonNull<V>>) {
+	for (k, v) in &mut *stale {
+		match v.take() {
+			None => (),
+			Some(v) => unsafe {
+				#[cfg(feature = "std")]
+				{
+					use std::panic::{catch_unwind, AssertUnwindSafe};
+
+					catch_unwind(AssertUnwindSafe(|| drop_in_place(k.as_mut_ptr()))).ok();
+					catch_unwind(AssertUnwindSafe(|| drop_in_place(v.as_ptr()))).ok();
+				}
+				#[cfg(not(feature = "std"))]
+				{
+					drop_in_place(k.as_mut_ptr());
+					drop_in_place(v.as_ptr());
+				}
+				dropped.push(v)
+			},
+		}
+	}
+	stale.clear()
 }
 
 impl<K, V> Linotype<K, V> {
+	/// Creates a new non-pinning [`Linotype`] instance.
+	#[must_use]
+	pub fn new() -> Self {
+		Self {
+			live: Vec::new(),
+			stale: Vec::new(),
+			storage: Arena::new(),
+			dropped: Vec::new(),
+		}
+	}
+
+	/// Turns this [`Linotype`] into a [`Pin`] of its values.
+	pub fn pin(self) -> Pin<Self> {
+		unsafe { mem::transmute(self) }
+	}
+
 	/// Retrieves a reference to the first value associated with `key`, iff available.
 	pub fn get<Q>(&self, key: &Q) -> Option<&V>
 	where
 		K: Borrow<Q>,
 		Q: Eq,
 	{
-		self.hot_index.iter().find_map(|(k, v)| match v {
+		self.live.iter().find_map(|(k, v)| match v {
 			Some(v) if key == unsafe { k.assume_init_ref() }.borrow() => {
 				Some(unsafe { v.as_ref() })
 			}
@@ -58,7 +112,7 @@ impl<K, V> Linotype<K, V> {
 		K: Borrow<Q>,
 		Q: Eq,
 	{
-		self.hot_index.iter_mut().find_map(|(k, v)| match v {
+		self.live.iter_mut().find_map(|(k, v)| match v {
 			Some(v) if key == unsafe { k.assume_init_ref() }.borrow() => {
 				Some(unsafe { v.as_mut() })
 			}
@@ -66,6 +120,9 @@ impl<K, V> Linotype<K, V> {
 		})
 	}
 
+	/// **Lazily** updates this map according to a sequence of key and **fallible** factory **pairs**.
+	///
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
 	pub fn update_try_with_keyed<'a: 'b, 'b, Q, F, I, E>(
 		&'a mut self,
 		keyed_factories: I,
@@ -77,19 +134,21 @@ impl<K, V> Linotype<K, V> {
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 		E: 'b,
 	{
-		mem::swap(&mut self.hot_index, &mut self.cold_index);
+		drop_stale(&mut self.stale, &mut self.dropped);
+		mem::swap(&mut self.live, &mut self.stale);
 
-		let mut cold_index = scopeguard::guard(&mut self.cold_index, |cold_index| {
-			cold_index
-				.drain(..)
-				.filter_map(|(_, v)| v)
-				.for_each(|v| unsafe { drop_in_place(v.as_ptr()) })
-		});
-		let hot_index = &mut self.hot_index;
-		let values = &self.values;
+		let mut stale_and_dropped =
+			scopeguard::guard((&mut self.stale, &mut self.dropped), |(stale, dropped)| {
+				drop_stale(stale, dropped)
+			});
+		let hot_index = &mut self.live;
+		let values = &self.storage;
 
 		keyed_factories.into_iter().map(move |(key, factory)| {
-			cold_index
+			// Double-references 😬
+			// Well, the compiler should be able to figure this out.
+			let (stale, dropped) = &mut *stale_and_dropped;
+			stale
 				.iter_mut()
 				.find_map(|(k, v)| match v {
 					Some(_) if key == unsafe { k.assume_init_ref() }.borrow() => v
@@ -102,14 +161,25 @@ impl<K, V> Linotype<K, V> {
 					_ => None,
 				})
 				.unwrap_or_else(|| {
-					// I'm *pretty* sure this is okay like that.
-					let v = values.alloc(factory(key)?);
+					let v = if let Some(mut v) = dropped.pop() {
+						unsafe {
+							v.as_ptr().write(factory(key)?);
+							v.as_mut()
+						}
+					} else {
+						values.alloc(factory(key)?)
+					};
+
+					// I'm *pretty* sure this is okay like that:
 					hot_index.push((MaybeUninit::new(key.to_owned()), NonNull::new(v)));
 					Ok((key, v))
 				})
 		})
 	}
 
+	/// **Lazily** updates this map according to a sequence of keys and a **fallible** factory.
+	///
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
 	pub fn update_try_with<'a: 'b, 'b, Q, F, I, E>(
 		&'a mut self,
 		keys: I,
@@ -129,6 +199,9 @@ impl<K, V> Linotype<K, V> {
 		self.update_try_with_keyed(keyed_factories)
 	}
 
+	/// **Lazily** updates this map according to a sequence of key and **infallible** factory **pairs**.
+	///
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
 	pub fn update_with_keyed<'a: 'b, 'b, Q, F, I>(
 		&'a mut self,
 		keyed_factories: I,
@@ -146,6 +219,9 @@ impl<K, V> Linotype<K, V> {
 			.map(unwrap_infallible)
 	}
 
+	/// **Lazily** updates this map according to a sequence of keys and an **infallible** factory.
+	///
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
 	pub fn update_with<'a: 'b, 'b, Q, F, I>(
 		&'a mut self,
 		keys: I,
@@ -169,8 +245,13 @@ fn unwrap_infallible<T>(infallible: Result<T, Infallible>) -> T {
 	infallible.unwrap()
 }
 
+/// The value-pinning [`Linotype`] API.
+///
+/// This can't be associated directly because `self: Pin<Self>` is currently not a valid method receiver.
 pub trait PinningLinotype {
+	/// The type of stored keys.
 	type K;
+	/// The type of values.
 	type V;
 
 	/// Retrieves a reference to the first value associated with `key`, iff available.
@@ -185,6 +266,12 @@ pub trait PinningLinotype {
 		Self::K: Borrow<Q>,
 		Q: Eq;
 
+	/// **Lazily** updates this map according to a sequence of key and **fallible** factory **pairs**.
+	///
+	/// Resulting values are pinned.
+	///
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
+	#[allow(clippy::type_complexity)]
 	fn update_try_with_keyed<'a: 'b, 'b, Q, F, I, E>(
 		&'a mut self,
 		keyed_factories: I,
@@ -196,6 +283,10 @@ pub trait PinningLinotype {
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 		E: 'b;
 
+	/// **Lazily** updates this map according to a sequence of keys and a **fallible** factory.
+	///
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
+	#[allow(clippy::type_complexity)]
 	fn update_try_with<'a: 'b, 'b, Q, F, I, E>(
 		&'a mut self,
 		keys: I,
@@ -208,6 +299,9 @@ pub trait PinningLinotype {
 		I: 'b + IntoIterator<Item = &'b Q>,
 		E: 'b;
 
+	/// **Lazily** updates this map according to a sequence of key and **infallible** factory **pairs**.
+	///
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
 	fn update_with_keyed<'a: 'b, 'b, Q, F, I>(
 		&'a mut self,
 		keyed_factories: I,
@@ -218,6 +312,9 @@ pub trait PinningLinotype {
 		F: 'b + FnOnce(&'b Q) -> Self::V,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>;
 
+	/// **Lazily** updates this map according to a sequence of keys and an **infallible** factory.
+	///
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
 	fn update_with<'a: 'b, 'b, Q, F, I>(
 		&'a mut self,
 		keys: I,
@@ -251,6 +348,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		self.as_non_pin_mut().get_mut(key).map(wrap_in_pin)
 	}
 
+	#[allow(clippy::type_complexity)]
 	fn update_try_with_keyed<'a: 'b, 'b, Q, F, I, E>(
 		&'a mut self,
 		keyed_factories: I,
@@ -268,6 +366,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 			.pipe(Box::new)
 	}
 
+	#[allow(clippy::type_complexity)]
 	fn update_try_with<'a: 'b, 'b, Q, F, I, E>(
 		&'a mut self,
 		keys: I,
@@ -320,24 +419,36 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	}
 }
 
+/// # Safety
+///
+/// This trait is only safe to implement if not misused.
 unsafe trait PinHelper {
 	type T;
 
 	fn as_non_pin(&self) -> &Self::T;
 	fn as_non_pin_mut(&mut self) -> &mut Self::T;
 }
+
+/// # Safety Notes
+///
+/// All methods on [`Linotype`] that are callable through the pinning API act as if the values were always pinned.
 unsafe impl<K, V> PinHelper for Pin<Linotype<K, V>> {
 	type T = Linotype<K, V>;
 
 	fn as_non_pin(&self) -> &Self::T {
-		unsafe { mem::transmute(self) }
+		unsafe { &*(self as *const Pin<Linotype<K, V>>).cast::<Linotype<K, V>>() }
 	}
 
 	fn as_non_pin_mut(&mut self) -> &mut Self::T {
-		unsafe { mem::transmute(self) }
+		unsafe { &mut *(self as *mut Pin<Linotype<K, V>>).cast::<Linotype<K, V>>() }
 	}
 }
 
+/// # Safety Notes
+///
+/// This would be horribly unsafe if exposed. It acts as adapter in the pinning API here,
+/// since the non-pinning API (privately!) already acts as if the values were pinned,
+/// as far as it is callable through the public pinning API.
 fn wrap_in_pin<T: Deref>(value: T) -> Pin<T> {
 	unsafe { Pin::new_unchecked(value) }
 }

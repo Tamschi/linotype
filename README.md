@@ -16,9 +16,10 @@
 [![crev reviews](https://web.crev.dev/rust-reviews/badge/crev_count/linotype.svg)](https://web.crev.dev/rust-reviews/crate/linotype/)
 [![Zulip Chat](https://img.shields.io/endpoint?label=chat&url=https%3A%2F%2Fiteration-square-automation.schichler.dev%2F.netlify%2Ffunctions%2Fstream_subscribers_shield%3Fstream%3Dproject%252Flinotype)](https://iteration-square.schichler.dev/#narrow/stream/project.2Flinotype)
 
-A stable transactionally-incremental indexed map that can pin its values.
+A keyed list reprojector that can optionally pin its values.
 
-Optimised for relatively small entry counts, like instances of a GUI component in a mutable list.
+This component can be used to manage item-associated state of a changing sequence, like in dynamically generated lists of stateful components.
+As such, it is optimised for flexible use (requiring only [`Eq`](https://doc.rust-lang.org/stable/std/cmp/trait.Eq.html) for keys, with automatic key cache and flexible lifetimes) and relatively low entry counts.
 
 ## Installation
 

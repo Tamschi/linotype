@@ -3,7 +3,7 @@ name = "linotype"
 version = "0.0.1"
 authors = ["Tamme Schichler <tamme@schichler.dev>"]
 edition = "2018"
-description = "A stable transactionally-incremental indexed map that can pin its values."
+description = "A keyed list reprojector that can optionally pin its values. (A stable-ordered transactionally-incremental indexed map.)"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Tamschi/linotype"
 homepage = "https://github.com/Tamschi/linotype/tree/v0.0.1"
@@ -29,6 +29,9 @@ publish = false
 is-it-maintained-issue-resolution = { repository = "Tamschi/linotype" }
 is-it-maintained-open-issues = { repository = "Tamschi/linotype" }
 maintenance = { status = "experimental" } # This may differ between branches.
+
+[features]
+std = []
 
 [dev-dependencies]
 cargo-husky = "1.5.0"

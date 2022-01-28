@@ -28,7 +28,7 @@ use core::{
 	ptr::{drop_in_place, NonNull},
 };
 
-use tap::{Pipe, TapOptional};
+use tap::{Pipe, Tap};
 use typed_arena::Arena;
 
 pub struct Linotype<K, V> {
@@ -94,9 +94,8 @@ impl<K, V> Linotype<K, V> {
 				.find_map(|(k, v)| match v {
 					Some(_) if key == unsafe { k.assume_init_ref() }.borrow() => v
 						.take()
-						.tap_some(|v| {
-							hot_index
-								.push((MaybeUninit::new(unsafe { k.as_ptr().read() }), Some(*v)))
+						.tap(|v| {
+							hot_index.push((MaybeUninit::new(unsafe { k.as_ptr().read() }), *v))
 						})
 						.map(|mut v| (key, unsafe { v.as_mut() }))
 						.map(Ok),

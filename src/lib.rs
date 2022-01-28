@@ -2,6 +2,14 @@
 //!
 //! [![Zulip Chat](https://img.shields.io/endpoint?label=chat&url=https%3A%2F%2Fiteration-square-automation.schichler.dev%2F.netlify%2Ffunctions%2Fstream_subscribers_shield%3Fstream%3Dproject%252Flinotype)](https://iteration-square.schichler.dev/#narrow/stream/project.2Flinotype)
 //!
+//! # Features
+//!
+//! ## `"std"`
+//!
+//! Allows this crate to avoid memory leaks into the internal value storage arena in case of panicking [`Drop`] implementations, but has otherwise no effect.
+//!
+//! > This is legal
+//!
 //! # Performance Focus
 //!
 //! This implementation is optimised for relatively small entry counts,
@@ -25,11 +33,13 @@ use core::{
 	borrow::Borrow,
 	cell::RefCell,
 	convert::Infallible,
+	iter,
 	mem::{self, MaybeUninit},
 	ops::Deref,
 	pin::Pin,
 	ptr::{drop_in_place, NonNull},
 };
+use scopeguard::ScopeGuard;
 
 use tap::{Pipe, Tap};
 use typed_arena::Arena;
@@ -43,6 +53,7 @@ pub struct Linotype<K, V> {
 	stale: Index<K, V>,
 	storage: Arena<V>,
 	dropped: Vec<NonNull<V>>,
+	pinning: bool,
 }
 
 impl<K, V> Default for Linotype<K, V> {
@@ -51,32 +62,63 @@ impl<K, V> Default for Linotype<K, V> {
 	}
 }
 
-fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut Vec<NonNull<V>>) {
-	for (k, v) in &mut *stale {
-		match v.take() {
+impl<K, V> Drop for Linotype<K, V> {
+	fn drop(&mut self) {
+		// It's a bit roundabout, but nicely takes care of the panic-handling.
+
+		struct Waste;
+		impl<T> Extend<T> for Waste {
+			fn extend<I: IntoIterator<Item = T>>(&mut self, _: I) {}
+		}
+		drop_stale(&mut self.stale, &mut Waste);
+		drop_stale(&mut self.live, &mut Waste);
+	}
+}
+
+fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V>>) {
+	#[cfg(feature = "std")]
+	let mut panic = None;
+
+	let guard = scopeguard::guard((), |()| {
+		panic!("`Pin<Linotype>`: A key or value drop implementation panicked. The `drop`-guarantee cannot be upheld without the `\"std\"` feature.")
+	});
+
+	for (k, v) in stale.drain(..) {
+		match v {
 			None => (),
 			Some(v) => unsafe {
 				#[cfg(feature = "std")]
 				{
 					use std::panic::{catch_unwind, AssertUnwindSafe};
 
-					catch_unwind(AssertUnwindSafe(|| drop_in_place(k.as_mut_ptr()))).ok();
-					catch_unwind(AssertUnwindSafe(|| drop_in_place(v.as_ptr()))).ok();
+					let k_ = catch_unwind(AssertUnwindSafe(|| drop(k.assume_init()))).err();
+					let v_ = catch_unwind(AssertUnwindSafe(|| drop_in_place(v.as_ptr()))).err();
+					panic = panic.or(k_).or(v_);
 				}
 				#[cfg(not(feature = "std"))]
 				{
-					drop_in_place(k.as_mut_ptr());
+					drop(k.assume_init());
 					drop_in_place(v.as_ptr());
 				}
-				dropped.push(v)
+				dropped.extend(iter::once(v))
 			},
 		}
 	}
-	stale.clear()
+	ScopeGuard::into_inner(guard);
+
+	#[cfg(feature = "std")]
+	if let Some(panic) = panic {
+		std::panic::resume_unwind(panic)
+	}
 }
 
 impl<K, V> Linotype<K, V> {
 	/// Creates a new non-pinning [`Linotype`] instance.
+	///
+	/// > TODO:
+	/// >
+	/// > This can *nearly* be `const`.
+	/// > It may be worthwhile to contribute a second constructor to [`Arena`].
 	#[must_use]
 	pub fn new() -> Self {
 		Self {
@@ -84,11 +126,20 @@ impl<K, V> Linotype<K, V> {
 			stale: Vec::new(),
 			storage: Arena::new(),
 			dropped: Vec::new(),
+			pinning: false,
 		}
 	}
 
 	/// Turns this [`Linotype`] into a [`Pin`] of its values.
-	pub fn pin(self) -> Pin<Self> {
+	///
+	/// # Safety Notes
+	///
+	/// Note that this sets a flag to abort on panics from key and value [`Drop`] implementations iff the `"std"` feature is not active.
+	///
+	/// This means that transmuting a [`Linotype`] to wrap it in a [`Pin`] is normally **not** a sound operation.  
+	/// However, [`Linotype`] itself never relies on this flag in other circumstances.
+	pub fn pin(mut self) -> Pin<Self> {
+		self.pinning = true;
 		unsafe { mem::transmute(self) }
 	}
 

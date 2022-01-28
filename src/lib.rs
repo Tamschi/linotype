@@ -20,6 +20,7 @@ extern crate alloc;
 use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
 use core::{
 	borrow::Borrow,
+	cell::RefCell,
 	convert::Infallible,
 	mem::{self, MaybeUninit},
 	ops::Deref,
@@ -44,7 +45,9 @@ impl<K, V> Linotype<K, V> {
 		Q: Eq,
 	{
 		self.hot_index.iter().find_map(|(k, v)| match v {
-			Some(v) if key == k.assume_init_ref().borrow() => Some(unsafe { v.as_ref() }),
+			Some(v) if key == unsafe { k.assume_init_ref() }.borrow() => {
+				Some(unsafe { v.as_ref() })
+			}
 			_ => None,
 		})
 	}
@@ -70,7 +73,7 @@ impl<K, V> Linotype<K, V> {
 	where
 		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&K) -> Result<V, E>,
+		F: 'b + FnOnce(&'b Q) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 		E: 'b,
 	{
@@ -79,7 +82,7 @@ impl<K, V> Linotype<K, V> {
 		let mut cold_index = scopeguard::guard(&mut self.cold_index, |cold_index| {
 			cold_index
 				.drain(..)
-				.filter_map(|(k, v)| v)
+				.filter_map(|(_, v)| v)
 				.for_each(|v| unsafe { drop_in_place(v.as_ptr()) })
 		});
 		let hot_index = &mut self.hot_index;
@@ -95,11 +98,10 @@ impl<K, V> Linotype<K, V> {
 					_ => None,
 				})
 				.unwrap_or_else(|| {
-					let k = key.to_owned();
-					let v = values.alloc(factory(&k)?);
+					let v = values.alloc(factory(key)?);
 
+					hot_index.push((MaybeUninit::new(key.to_owned()), NonNull::new(v)));
 					//TODO: Do I even need to reload `v` here?
-					hot_index.push((MaybeUninit::new(k), NonNull::new(v)));
 					let (_, v) = hot_index.last().unwrap();
 					Ok((key, unsafe { v.unwrap().as_mut() }))
 				})
@@ -114,11 +116,14 @@ impl<K, V> Linotype<K, V> {
 	where
 		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&K) -> Result<V, E>,
+		F: 'b + FnMut(&'b Q) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = &'b Q>,
 		E: 'b,
 	{
-		let keyed_factories = keys.into_iter().map(move |key| (key, |k| factory(k)));
+		let keyed_factories = keys.into_iter().map(move |key| {
+			let factory = RefCell::new(unsafe { &mut *(&mut factory as *mut _) });
+			(key, move |key| factory.borrow_mut()(key))
+		});
 		self.update_try_with_keyed(keyed_factories)
 	}
 
@@ -129,7 +134,7 @@ impl<K, V> Linotype<K, V> {
 	where
 		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&K) -> V,
+		F: 'b + FnOnce(&'b Q) -> V,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 	{
 		let keyed_factories = keyed_factories
@@ -147,10 +152,13 @@ impl<K, V> Linotype<K, V> {
 	where
 		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&K) -> V,
+		F: 'b + FnMut(&'b Q) -> V,
 		I: 'b + IntoIterator<Item = &'b Q>,
 	{
-		let keyed_factories = keys.into_iter().map(move |key| (key, |k| factory(k)));
+		let keyed_factories = keys.into_iter().map(move |key| {
+			let factory = RefCell::new(unsafe { &mut *(&mut factory as *mut _) });
+			(key, move |key| factory.borrow_mut()(key))
+		});
 		self.update_with_keyed(keyed_factories)
 	}
 }
@@ -182,7 +190,7 @@ pub trait PinningLinotype {
 	where
 		Self::K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = Self::K>,
-		F: 'b + FnOnce(&Self::K) -> Result<Self::V, E>,
+		F: 'b + FnOnce(&'b Q) -> Result<Self::V, E>,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 		E: 'b;
 
@@ -194,7 +202,7 @@ pub trait PinningLinotype {
 	where
 		Self::K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = Self::K>,
-		F: 'b + FnMut(&Self::K) -> Result<Self::V, E>,
+		F: 'b + FnMut(&'b Q) -> Result<Self::V, E>,
 		I: 'b + IntoIterator<Item = &'b Q>,
 		E: 'b;
 
@@ -205,7 +213,7 @@ pub trait PinningLinotype {
 	where
 		Self::K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = Self::K>,
-		F: 'b + FnOnce(&Self::K) -> Self::V,
+		F: 'b + FnOnce(&'b Q) -> Self::V,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>;
 
 	fn update_with<'a: 'b, 'b, Q, F, I>(
@@ -216,7 +224,7 @@ pub trait PinningLinotype {
 	where
 		Self::K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = Self::K>,
-		F: 'b + FnMut(&Self::K) -> Self::V,
+		F: 'b + FnMut(&'b Q) -> Self::V,
 		I: 'b + IntoIterator<Item = &'b Q>;
 }
 impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
@@ -248,7 +256,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	where
 		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&K) -> Result<V, E>,
+		F: 'b + FnOnce(&'b Q) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 		E: 'b,
 	{
@@ -266,7 +274,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	where
 		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&K) -> Result<V, E>,
+		F: 'b + FnMut(&'b Q) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = &'b Q>,
 		E: 'b,
 	{
@@ -283,7 +291,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	where
 		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&K) -> V,
+		F: 'b + FnOnce(&'b Q) -> V,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 	{
 		self.as_non_pin_mut()
@@ -300,7 +308,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	where
 		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&K) -> V,
+		F: 'b + FnMut(&'b Q) -> V,
 		I: 'b + IntoIterator<Item = &'b Q>,
 	{
 		self.as_non_pin_mut()

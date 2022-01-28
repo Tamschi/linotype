@@ -18,13 +18,21 @@ mod readme {}
 extern crate alloc;
 
 use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
-use core::{borrow::Borrow, convert::Infallible, iter, mem, ops::Deref, pin::Pin, ptr::NonNull};
+use core::{
+	borrow::Borrow,
+	convert::Infallible,
+	mem::{self, MaybeUninit},
+	ops::Deref,
+	pin::Pin,
+	ptr::{drop_in_place, NonNull},
+};
+
 use tap::Pipe;
 use typed_arena::Arena;
 
 pub struct Linotype<K, V> {
-	hot_index: Vec<(Option<K>, NonNull<V>)>,
-	cold_index: Vec<(Option<K>, NonNull<V>)>,
+	hot_index: Vec<(MaybeUninit<K>, Option<NonNull<V>>)>,
+	cold_index: Vec<(MaybeUninit<K>, Option<NonNull<V>>)>,
 	values: Arena<V>,
 }
 
@@ -35,8 +43,8 @@ impl<K, V> Linotype<K, V> {
 		K: Borrow<Q>,
 		Q: Eq,
 	{
-		self.hot_index.iter().find_map(|(k, v)| match k {
-			Some(k) if key == k.borrow() => Some(unsafe { v.as_ref() }),
+		self.hot_index.iter().find_map(|(k, v)| match v {
+			Some(v) if key == k.assume_init_ref().borrow() => Some(unsafe { v.as_ref() }),
 			_ => None,
 		})
 	}
@@ -47,8 +55,10 @@ impl<K, V> Linotype<K, V> {
 		K: Borrow<Q>,
 		Q: Eq,
 	{
-		self.hot_index.iter_mut().find_map(|(k, v)| match k {
-			Some(k) if key == (*k).borrow() => Some(unsafe { v.as_mut() }),
+		self.hot_index.iter_mut().find_map(|(k, v)| match v {
+			Some(v) if key == unsafe { k.assume_init_ref() }.borrow() => {
+				Some(unsafe { v.as_mut() })
+			}
 			_ => None,
 		})
 	}
@@ -56,46 +66,77 @@ impl<K, V> Linotype<K, V> {
 	pub fn update_try_with_keyed<'a: 'b, 'b, Q, F, I, E>(
 		&'a mut self,
 		keyed_factories: I,
-	) -> impl 'b + Iterator<Item = Result<(&'a K, &'a mut V), E>>
+	) -> impl 'b + Iterator<Item = Result<(&'b Q, &'a mut V), E>>
 	where
+		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&'a K) -> Result<V, E>,
+		F: 'b + FnOnce(&K) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 		E: 'b,
 	{
-		todo!();
-		iter::empty()
+		mem::swap(&mut self.hot_index, &mut self.cold_index);
+
+		let mut cold_index = scopeguard::guard(&mut self.cold_index, |cold_index| {
+			cold_index
+				.drain(..)
+				.filter_map(|(k, v)| v)
+				.for_each(|v| unsafe { drop_in_place(v.as_ptr()) })
+		});
+		let hot_index = &mut self.hot_index;
+		let values = &self.values;
+
+		keyed_factories.into_iter().map(move |(key, factory)| {
+			cold_index
+				.iter_mut()
+				.find_map(|(k, v)| match v {
+					Some(_) if key == unsafe { k.assume_init_ref() }.borrow() => {
+						v.take().map(|mut v| (key, unsafe { v.as_mut() })).map(Ok)
+					}
+					_ => None,
+				})
+				.unwrap_or_else(|| {
+					let k = key.to_owned();
+					let v = values.alloc(factory(&k)?);
+					hot_index.push((MaybeUninit::new(k), NonNull::new(v)));
+					let (_, v) = hot_index.last().unwrap();
+					Ok((key, unsafe { v.unwrap().as_mut() }))
+				})
+		})
 	}
 
 	pub fn update_try_with<'a: 'b, 'b, Q, F, I, E>(
 		&'a mut self,
 		keys: I,
 		mut factory: F,
-	) -> impl 'b + Iterator<Item = Result<(&'a K, &'a mut V), E>>
+	) -> impl 'b + Iterator<Item = Result<(&'b Q, &'a mut V), E>>
 	where
+		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&'a K) -> Result<V, E>,
+		F: 'b + FnMut(&K) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = &'b Q>,
 		E: 'b,
 	{
-		let keys = keys.into_iter();
-		self.update_try_with_keyed(keys.map(move |key| {
+		let keyed_factories = keys.into_iter().map(move |key| {
 			let factory = unsafe { &mut *(&mut factory as *mut F) };
 			(key, move |k| factory(k))
-		}))
+		});
+		self.update_try_with_keyed(keyed_factories)
 	}
 
 	pub fn update_with_keyed<'a: 'b, 'b, Q, F, I>(
 		&'a mut self,
 		keyed_factories: I,
-	) -> impl 'b + Iterator<Item = (&'a K, &'a mut V)>
+	) -> impl 'b + Iterator<Item = (&'b Q, &'a mut V)>
 	where
+		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&'a K) -> V,
+		F: 'b + FnOnce(&K) -> V,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 	{
-		let keyed_factories = keyed_factories.into_iter();
-		self.update_try_with_keyed(keyed_factories.map(|(key, factory)| (key, |k| Ok(factory(k)))))
+		let keyed_factories = keyed_factories
+			.into_iter()
+			.map(|(key, factory)| (key, |k| Ok(factory(k))));
+		self.update_try_with_keyed(keyed_factories)
 			.map(unwrap_infallible)
 	}
 
@@ -103,17 +144,18 @@ impl<K, V> Linotype<K, V> {
 		&'a mut self,
 		keys: I,
 		mut factory: F,
-	) -> impl 'b + Iterator<Item = (&'a K, &'a mut V)>
+	) -> impl 'b + Iterator<Item = (&'b Q, &'a mut V)>
 	where
+		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&'a K) -> V,
+		F: 'b + FnMut(&K) -> V,
 		I: 'b + IntoIterator<Item = &'b Q>,
 	{
-		let keys = keys.into_iter();
-		self.update_with_keyed(keys.map(move |key| {
+		let keyed_factories = keys.into_iter().map(move |key| {
 			let factory = unsafe { &mut *(&mut factory as *mut F) };
 			(key, move |k| factory(k))
-		}))
+		});
+		self.update_with_keyed(keyed_factories)
 	}
 }
 
@@ -140,10 +182,11 @@ pub trait PinningLinotype {
 	fn update_try_with_keyed<'a: 'b, 'b, Q, F, I, E>(
 		&'a mut self,
 		keyed_factories: I,
-	) -> Box<dyn 'b + Iterator<Item = Result<(&'a Self::K, Pin<&'a mut Self::V>), E>>>
+	) -> Box<dyn 'b + Iterator<Item = Result<(&'b Q, Pin<&'a mut Self::V>), E>>>
 	where
+		Self::K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = Self::K>,
-		F: 'b + FnOnce(&'a Self::K) -> Result<Self::V, E>,
+		F: 'b + FnOnce(&Self::K) -> Result<Self::V, E>,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 		E: 'b;
 
@@ -151,30 +194,33 @@ pub trait PinningLinotype {
 		&'a mut self,
 		keys: I,
 		factory: F,
-	) -> Box<dyn 'b + Iterator<Item = Result<(&'a Self::K, Pin<&'a mut Self::V>), E>>>
+	) -> Box<dyn 'b + Iterator<Item = Result<(&'b Q, Pin<&'a mut Self::V>), E>>>
 	where
+		Self::K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = Self::K>,
-		F: 'b + FnMut(&'a Self::K) -> Result<Self::V, E>,
+		F: 'b + FnMut(&Self::K) -> Result<Self::V, E>,
 		I: 'b + IntoIterator<Item = &'b Q>,
 		E: 'b;
 
 	fn update_with_keyed<'a: 'b, 'b, Q, F, I>(
 		&'a mut self,
 		keyed_factories: I,
-	) -> Box<dyn 'b + Iterator<Item = (&'a Self::K, Pin<&'a mut Self::V>)>>
+	) -> Box<dyn 'b + Iterator<Item = (&'b Q, Pin<&'a mut Self::V>)>>
 	where
+		Self::K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = Self::K>,
-		F: 'b + FnOnce(&'a Self::K) -> Self::V,
+		F: 'b + FnOnce(&Self::K) -> Self::V,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>;
 
 	fn update_with<'a: 'b, 'b, Q, F, I>(
 		&'a mut self,
 		keys: I,
 		factory: F,
-	) -> Box<dyn 'b + Iterator<Item = (&'a Self::K, Pin<&'a mut Self::V>)>>
+	) -> Box<dyn 'b + Iterator<Item = (&'b Q, Pin<&'a mut Self::V>)>>
 	where
+		Self::K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = Self::K>,
-		F: 'b + FnMut(&'a Self::K) -> Self::V,
+		F: 'b + FnMut(&Self::K) -> Self::V,
 		I: 'b + IntoIterator<Item = &'b Q>;
 }
 impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
@@ -202,10 +248,11 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	fn update_try_with_keyed<'a: 'b, 'b, Q, F, I, E>(
 		&'a mut self,
 		keyed_factories: I,
-	) -> Box<dyn 'b + Iterator<Item = Result<(&'a K, Pin<&'a mut V>), E>>>
+	) -> Box<dyn 'b + Iterator<Item = Result<(&'b Q, Pin<&'a mut V>), E>>>
 	where
+		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&'a K) -> Result<V, E>,
+		F: 'b + FnOnce(&K) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 		E: 'b,
 	{
@@ -219,10 +266,11 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		&'a mut self,
 		keys: I,
 		factory: F,
-	) -> Box<dyn 'b + Iterator<Item = Result<(&'a K, Pin<&'a mut V>), E>>>
+	) -> Box<dyn 'b + Iterator<Item = Result<(&'b Q, Pin<&'a mut V>), E>>>
 	where
+		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&'a K) -> Result<V, E>,
+		F: 'b + FnMut(&K) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = &'b Q>,
 		E: 'b,
 	{
@@ -235,10 +283,11 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	fn update_with_keyed<'a: 'b, 'b, Q, F, I>(
 		&'a mut self,
 		keyed_factories: I,
-	) -> Box<dyn 'b + Iterator<Item = (&'a K, Pin<&'a mut V>)>>
+	) -> Box<dyn 'b + Iterator<Item = (&'b Q, Pin<&'a mut V>)>>
 	where
+		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&'a K) -> V,
+		F: 'b + FnOnce(&K) -> V,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 	{
 		self.as_non_pin_mut()
@@ -251,10 +300,11 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		&'a mut self,
 		keys: I,
 		factory: F,
-	) -> Box<dyn 'b + Iterator<Item = (&'a K, Pin<&'a mut V>)>>
+	) -> Box<dyn 'b + Iterator<Item = (&'b Q, Pin<&'a mut V>)>>
 	where
+		K: Borrow<Q>,
 		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&'a K) -> V,
+		F: 'b + FnMut(&K) -> V,
 		I: 'b + IntoIterator<Item = &'b Q>,
 	{
 		self.as_non_pin_mut()

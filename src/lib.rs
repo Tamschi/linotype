@@ -61,6 +61,25 @@ impl<K, V> Linotype<K, V> {
 		F: 'b + FnOnce(&'a K) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 	{
+		todo!()
+	}
+
+	pub fn update_try_with<'a: 'b, 'b, Q, F, I, E>(
+		&'a mut self,
+		keys: I,
+		mut factory: F,
+	) -> impl 'b + Iterator<Item = Result<(&'a K, &'a mut V), E>>
+	where
+		Q: 'b + Eq + ToOwned<Owned = K>,
+		F: 'b + FnMut(&'a K) -> Result<V, E>,
+		I: 'b + IntoIterator<Item = &'b Q>,
+		E: 'b,
+	{
+		let keys = keys.into_iter();
+		self.update_try_with_keyed(keys.map(move |key| {
+			let factory = unsafe { &mut *(&mut factory as *mut F) };
+			(key, move |k| factory(k))
+		}))
 	}
 
 	pub fn update_with_keyed<'a: 'b, 'b, Q, F, I>(
@@ -73,10 +92,25 @@ impl<K, V> Linotype<K, V> {
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 	{
 		let keyed_factories = keyed_factories.into_iter();
-		self.update_try_with_keyed(
-			keyed_factories.map(|(key, factory)| (key, |k| Ok::<_, Infallible>(factory(k)))),
-		)
-		.map(unwrap_infallible)
+		self.update_try_with_keyed(keyed_factories.map(|(key, factory)| (key, |k| Ok(factory(k)))))
+			.map(unwrap_infallible)
+	}
+
+	pub fn update_with<'a: 'b, 'b, Q, F, I>(
+		&'a mut self,
+		keys: I,
+		mut factory: F,
+	) -> impl 'b + Iterator<Item = (&'a K, &'a mut V)>
+	where
+		Q: 'b + Eq + ToOwned<Owned = K>,
+		F: 'b + FnMut(&'a K) -> V,
+		I: 'b + IntoIterator<Item = &'b Q>,
+	{
+		let keys = keys.into_iter();
+		self.update_with_keyed(keys.map(move |key| {
+			let factory = unsafe { &mut *(&mut factory as *mut F) };
+			(key, move |k| factory(k))
+		}))
 	}
 }
 

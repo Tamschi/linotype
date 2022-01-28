@@ -97,6 +97,8 @@ impl<K, V> Linotype<K, V> {
 				.unwrap_or_else(|| {
 					let k = key.to_owned();
 					let v = values.alloc(factory(&k)?);
+
+					//TODO: Do I even need to reload `v` here?
 					hot_index.push((MaybeUninit::new(k), NonNull::new(v)));
 					let (_, v) = hot_index.last().unwrap();
 					Ok((key, unsafe { v.unwrap().as_mut() }))
@@ -116,10 +118,7 @@ impl<K, V> Linotype<K, V> {
 		I: 'b + IntoIterator<Item = &'b Q>,
 		E: 'b,
 	{
-		let keyed_factories = keys.into_iter().map(move |key| {
-			let factory = unsafe { &mut *(&mut factory as *mut F) };
-			(key, move |k| factory(k))
-		});
+		let keyed_factories = keys.into_iter().map(move |key| (key, |k| factory(k)));
 		self.update_try_with_keyed(keyed_factories)
 	}
 
@@ -151,10 +150,7 @@ impl<K, V> Linotype<K, V> {
 		F: 'b + FnMut(&K) -> V,
 		I: 'b + IntoIterator<Item = &'b Q>,
 	{
-		let keyed_factories = keys.into_iter().map(move |key| {
-			let factory = unsafe { &mut *(&mut factory as *mut F) };
-			(key, move |k| factory(k))
-		});
+		let keyed_factories = keys.into_iter().map(move |key| (key, |k| factory(k)));
 		self.update_with_keyed(keyed_factories)
 	}
 }

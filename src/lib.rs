@@ -98,12 +98,10 @@ impl<K, V> Linotype<K, V> {
 					_ => None,
 				})
 				.unwrap_or_else(|| {
+					// I'm *pretty* sure this is okay like that.
 					let v = values.alloc(factory(key)?);
-
 					hot_index.push((MaybeUninit::new(key.to_owned()), NonNull::new(v)));
-					//TODO: Do I even need to reload `v` here?
-					let (_, v) = hot_index.last().unwrap();
-					Ok((key, unsafe { v.unwrap().as_mut() }))
+					Ok((key, v))
 				})
 		})
 	}

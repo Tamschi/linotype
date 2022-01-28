@@ -18,7 +18,7 @@ mod readme {}
 extern crate alloc;
 
 use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
-use core::{borrow::Borrow, convert::Infallible, mem, ops::Deref, pin::Pin, ptr::NonNull};
+use core::{borrow::Borrow, convert::Infallible, iter, mem, ops::Deref, pin::Pin, ptr::NonNull};
 use tap::Pipe;
 use typed_arena::Arena;
 
@@ -63,7 +63,8 @@ impl<K, V> Linotype<K, V> {
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 		E: 'b,
 	{
-		todo!()
+		todo!();
+		iter::empty()
 	}
 
 	pub fn update_try_with<'a: 'b, 'b, Q, F, I, E>(
@@ -195,7 +196,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		K: Borrow<Q>,
 		Q: Eq,
 	{
-		self.as_non_pin().get_mut(key).map(wrap_in_pin)
+		self.as_non_pin_mut().get_mut(key).map(wrap_in_pin)
 	}
 
 	fn update_try_with_keyed<'a: 'b, 'b, Q, F, I, E>(
@@ -208,7 +209,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 		E: 'b,
 	{
-		self.as_non_pin()
+		self.as_non_pin_mut()
 			.update_try_with_keyed(keyed_factories)
 			.map(|result| result.map(|(k, v)| (k, wrap_in_pin(v))))
 			.pipe(Box::new)
@@ -217,7 +218,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	fn update_try_with<'a: 'b, 'b, Q, F, I, E>(
 		&'a mut self,
 		keys: I,
-		mut factory: F,
+		factory: F,
 	) -> Box<dyn 'b + Iterator<Item = Result<(&'a K, Pin<&'a mut V>), E>>>
 	where
 		Q: 'b + Eq + ToOwned<Owned = K>,
@@ -225,7 +226,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		I: 'b + IntoIterator<Item = &'b Q>,
 		E: 'b,
 	{
-		self.as_non_pin()
+		self.as_non_pin_mut()
 			.update_try_with(keys, factory)
 			.map(|result| result.map(|(k, v)| (k, wrap_in_pin(v))))
 			.pipe(Box::new)
@@ -240,7 +241,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		F: 'b + FnOnce(&'a K) -> V,
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 	{
-		self.as_non_pin()
+		self.as_non_pin_mut()
 			.update_with_keyed(keyed_factories)
 			.map(|(k, v)| (k, wrap_in_pin(v)))
 			.pipe(Box::new)
@@ -249,14 +250,14 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	fn update_with<'a: 'b, 'b, Q, F, I>(
 		&'a mut self,
 		keys: I,
-		mut factory: F,
+		factory: F,
 	) -> Box<dyn 'b + Iterator<Item = (&'a K, Pin<&'a mut V>)>>
 	where
 		Q: 'b + Eq + ToOwned<Owned = K>,
 		F: 'b + FnMut(&'a K) -> V,
 		I: 'b + IntoIterator<Item = &'b Q>,
 	{
-		self.as_non_pin()
+		self.as_non_pin_mut()
 			.update_with(keys, factory)
 			.map(|(k, v)| (k, wrap_in_pin(v)))
 			.pipe(Box::new)
@@ -267,11 +268,16 @@ unsafe trait PinHelper {
 	type T;
 
 	fn as_non_pin(&self) -> &Self::T;
+	fn as_non_pin_mut(&mut self) -> &mut Self::T;
 }
 unsafe impl<K, V> PinHelper for Pin<Linotype<K, V>> {
 	type T = Linotype<K, V>;
 
 	fn as_non_pin(&self) -> &Self::T {
+		unsafe { mem::transmute(self) }
+	}
+
+	fn as_non_pin_mut(&mut self) -> &mut Self::T {
 		unsafe { mem::transmute(self) }
 	}
 }

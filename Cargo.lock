@@ -93,6 +93,7 @@ dependencies = [
  "scopeguard",
  "tap",
  "typed-arena",
+ "vec_mut_scan",
  "version-sync",
  "wasm-bindgen-test",
 ]
@@ -283,6 +284,12 @@ dependencies = [
  "matches",
  "percent-encoding",
 ]
+
+[[package]]
+name = "vec_mut_scan"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a24f38c144e0e800ae2950826b67f4fe7f0b5983f7999f8bec5aef472448cb20"
 
 [[package]]
 name = "version-sync"

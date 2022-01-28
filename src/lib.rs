@@ -20,31 +20,76 @@ extern crate alloc;
 use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
 use core::{
 	borrow::Borrow,
-	cell::RefCell,
+	cell::{Cell, RefCell, UnsafeCell},
 	convert::Infallible,
 	mem::{self, MaybeUninit},
 	ops::Deref,
 	pin::Pin,
 	ptr::{drop_in_place, NonNull},
 };
+use vec_mut_scan::VecMutScan;
 
 use tap::{Pipe, Tap};
 use typed_arena::Arena;
 
+// mod vec_muck;
+
+type Index<K,V> = Vec<(MaybeUninit<K>, Option<NonNull<V>>)>;
+
+enum StaleOrDropped<K,V> {
+	Stale(Index<K,V>),
+	Dropped(Index<K,V>),
+}
+use StaleOrDropped::{Stale,Dropped};
+
+struct State<K, V> {
+}
+
 pub struct Linotype<K, V> {
-	hot_index: Vec<(MaybeUninit<K>, Option<NonNull<V>>)>,
-	cold_index: Vec<(MaybeUninit<K>, Option<NonNull<V>>)>,
+	live_and_dropped: Index<K, V>,
+	live_count: Cell<usize>,
+	stale_or_dropped: UnsafeCell<StaleOrDropped<K,V>>,
 	values: Arena<V>,
 }
 
+impl<K, V> Default for Linotype<K, V> {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl<K, V> Linotype<K, V> {
+	// Creates a new empty [`Linotype`] instance.
+	//
+	// > TODO:
+	// >
+	// > For my use-case, a version of this function that's `const` and doesn't allocate at all would be helpful.
+	// > PR to [typed-arena](`typed_arena`)?
+	#[must_use]
+	pub fn new() -> Self {
+		Self {
+			live_and_dropped: Index::new(),
+			live_count: 0.into(),
+			stale_or_dropped: Dropped(Index::new()).into(),
+			values: Arena::new(),
+		}
+	}
+
+	fn hot(&self) -> impl Iterator<Item = &(MaybeUninit<K>, Option<NonNull<V>>)> {
+		self.live_and_dropped.iter().take(self.live_count.get())
+	}
+
+	fn hot_mut(&mut self) -> impl Iterator<Item = &mut (MaybeUninit<K>, Option<NonNull<V>>)> {
+		self.live_and_dropped.iter_mut().take(self.live_count.get())
+	}
+
 	/// Retrieves a reference to the first value associated with `key`, iff available.
 	pub fn get<Q>(&self, key: &Q) -> Option<&V>
 	where
 		K: Borrow<Q>,
 		Q: Eq,
 	{
-		self.hot_index.iter().find_map(|(k, v)| match v {
+		self.hot().find_map(|(k, v)| match v {
 			Some(v) if key == unsafe { k.assume_init_ref() }.borrow() => {
 				Some(unsafe { v.as_ref() })
 			}
@@ -58,12 +103,31 @@ impl<K, V> Linotype<K, V> {
 		K: Borrow<Q>,
 		Q: Eq,
 	{
-		self.hot_index.iter_mut().find_map(|(k, v)| match v {
+		self.hot_mut().find_map(|(k, v)| match v {
 			Some(v) if key == unsafe { k.assume_init_ref() }.borrow() => {
 				Some(unsafe { v.as_mut() })
 			}
 			_ => None,
 		})
+	}
+
+	pub fn flush(&self) {
+		let state = self.state_mut();
+	}
+
+	fn varnish(&self) {
+		let state = self.state_mut();
+		if state.stale_is_dirty {
+			let mut scan = VecMutScan::new(&mut state.stale_or_dropped);
+			while let Some(item) = scan.next() {
+				match *item {
+					(_, Some(v)) => unsafe { drop_in_place(v.as_ptr()) },
+					(_, None) => item.remove().pipe(drop),
+				}
+			}
+		}
+		state.stale_is_dirty
+		state.live_and_dropped.drain(state.live_count..)
 	}
 
 	pub fn update_try_with_keyed<'a: 'b, 'b, Q, F, I, E>(
@@ -77,10 +141,12 @@ impl<K, V> Linotype<K, V> {
 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
 		E: 'b,
 	{
-		mem::swap(&mut self.hot_index, &mut self.cold_index);
+		self.varnish();
 
-		let mut cold_index = scopeguard::guard(&mut self.cold_index, |cold_index| {
-			cold_index
+		mem::swap(&mut self.hot_index, &mut self.stale_index);
+
+		let mut stale_index = scopeguard::guard(&mut self.stale_index, |stale_index| {
+			stale_index
 				.drain(..)
 				.filter_map(|(_, v)| v)
 				.for_each(|v| unsafe { drop_in_place(v.as_ptr()) })
@@ -89,7 +155,7 @@ impl<K, V> Linotype<K, V> {
 		let values = &self.values;
 
 		keyed_factories.into_iter().map(move |(key, factory)| {
-			cold_index
+			stale_index
 				.iter_mut()
 				.find_map(|(k, v)| match v {
 					Some(_) if key == unsafe { k.assume_init_ref() }.borrow() => v

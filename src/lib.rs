@@ -138,7 +138,7 @@ impl<K, V> Linotype<K, V> {
 	///
 	/// This means that transmuting a [`Linotype`] to wrap it in a [`Pin`] is normally **not** a sound operation.  
 	/// However, [`Linotype`] itself never relies on this flag in other circumstances.
-	pub fn pin(mut self) -> Pin<Self> {
+	pub const fn pin(mut self) -> Pin<Self> {
 		self.pinning = true;
 		unsafe { mem::transmute(self) }
 	}
@@ -171,18 +171,21 @@ impl<K, V> Linotype<K, V> {
 		})
 	}
 
-	/// **Lazily** updates this map according to a sequence of key and **fallible** factory **pairs**.
+	/// **Lazily** updates this map according to a sequence of item, **fallible** selector and **fallible** factory **triples**.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_try_with_keyed<'a: 'b, 'b, Q, F, I, E>(
+	pub fn update_try_by_keyed_try_with_keyed<'a: 'b, 'b, T, Qr, S, F, I, E>(
 		&'a mut self,
-		keyed_factories: I,
-	) -> impl 'b + Iterator<Item = Result<(&'b Q, &'a mut V), E>>
+		items_selectors_factories: I,
+	) -> impl 'b + Iterator<Item = Result<(T, &'a mut V), E>>
 	where
-		K: Borrow<Q>,
-		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&'b Q) -> Result<V, E>,
-		I: 'b + IntoIterator<Item = (&'b Q, F)>,
+		K: Borrow<Qr::Target>,
+		T: 'b,
+		Qr: Deref,
+		Qr::Target: Eq + ToOwned<Owned = K>,
+		S: 'b + FnOnce(&mut T) -> Result<Qr, E>,
+		F: 'b + FnOnce(&mut T, Qr) -> Result<V, E>,
+		I: 'b + IntoIterator<Item = (T, S, F)>,
 		E: 'b,
 	{
 		drop_stale(&mut self.stale, &mut self.dropped);
@@ -195,35 +198,82 @@ impl<K, V> Linotype<K, V> {
 		let live = &mut self.live;
 		let values = &self.storage;
 
-		keyed_factories.into_iter().map(move |(key, factory)| {
-			// Double-references 😬
-			// Well, the compiler should be able to figure this out.
-			let (stale, dropped) = &mut *stale_and_dropped;
-			stale
-				.iter_mut()
-				.find_map(|(k, v)| match v {
-					Some(_) if key == unsafe { k.assume_init_ref() }.borrow() => v
-						.take()
-						.tap(|v| live.push((MaybeUninit::new(unsafe { k.as_ptr().read() }), *v)))
-						.map(|mut v| (key, unsafe { v.as_mut() }))
-						.map(Ok),
-					_ => None,
-				})
-				.unwrap_or_else(|| {
-					let v = if let Some(mut v) = dropped.pop() {
-						unsafe {
-							v.as_ptr().write(factory(key)?);
-							v.as_mut()
-						}
-					} else {
-						values.alloc(factory(key)?)
-					};
+		items_selectors_factories
+			.into_iter()
+			.map(move |(mut item, selector, factory)| {
+				// Double-references 😬
+				// Well, the compiler should be able to figure this out.
+				let (stale, dropped) = &mut *stale_and_dropped;
+				let key = selector(&mut item)?;
+				let v = stale
+					.iter_mut()
+					.find_map(|(k, v)| match v {
+						Some(_) if key.deref() == unsafe { k.assume_init_ref() }.borrow() => v
+							.take()
+							.tap(|v| {
+								live.push((MaybeUninit::new(unsafe { k.as_ptr().read() }), *v))
+							})
+							.map(|mut v| unsafe { v.as_mut() })
+							.map(Ok),
+						_ => None,
+					})
+					.unwrap_or_else(|| {
+						let k = key.to_owned();
+						let v = if let Some(mut v) = dropped.pop() {
+							unsafe {
+								v.as_ptr().write(factory(&mut item, key)?);
+								v.as_mut()
+							}
+						} else {
+							values.alloc(factory(&mut item, key)?)
+						};
 
-					// I'm *pretty* sure this is okay like that:
-					live.push((MaybeUninit::new(key.to_owned()), NonNull::new(v)));
-					Ok((key, v))
-				})
-		})
+						// I'm *pretty* sure this is okay like that:
+						live.push((MaybeUninit::new(k), NonNull::new(v)));
+						Ok(v)
+					})?;
+				Ok((item, v))
+			})
+	}
+
+	/// **Lazily** updates this map according to a sequence of items and a **fallible** selector and **fallible** factory.
+	///
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
+	pub fn update_try_by_try_with<'a: 'b, 'b, T, Qr, S, F, I, E>(
+		&'a mut self,
+		items: I,
+		selector: S,
+		factory: F,
+	) -> impl 'b + Iterator<Item = Result<(T, &'a mut V), E>>
+	where
+		K: Borrow<Qr::Target>,
+		T: 'b,
+		Qr: Deref,
+		Qr::Target: Eq + ToOwned<Owned = K>,
+		S: 'b + FnMut(&mut T) -> Result<Qr, E>,
+		F: 'b + FnMut(&mut T, Qr) -> Result<V, E>,
+		I: 'b + IntoIterator<Item = T>,
+		E: 'b,
+	{
+		self.update_try_by_keyed_try_with_keyed(items.into_iter().map(move |item| {
+			let selector = NonNull::from(&mut selector);
+			let factory = NonNull::from(&mut factory);
+			(
+				item,
+				//SAFETY:
+				// We know (due to `update_try_by_keyed_try_with_keyed`) that during each result iterator step,
+				// the pointers above will be taken and the functions called without any opportunity for the iterator
+				// to move, which means this outer closure here won't move during that time,
+				// keeping selector and factory in place.
+				//
+				//BUG: Iterator::map is probably implement this way, but the specification doesn't actually
+				// guarantee it I think, and which implementation we use may actually differ here… which
+				// means I'll have to use a custom Map implementation that I *know* won't shift the closure around internally,
+				// and in `update_try_by_keyed_try_with_keyed` I'll have to use one I know won't shift the iterator before calling the closure.
+				move |item| unsafe { selector.as_mut() }(item),
+				move |item, key| unsafe { factory.as_mut() }(item, key),
+			)
+		}))
 	}
 
 	/// **Lazily** updates this map according to a sequence of keys and a **fallible** factory.
@@ -245,7 +295,7 @@ impl<K, V> Linotype<K, V> {
 			let factory = RefCell::new(unsafe { &mut *(&mut factory as *mut _) });
 			(key, move |key| factory.borrow_mut()(key))
 		});
-		self.update_try_with_keyed(keyed_factories)
+		self.update_try_by_try_with_keyed(keyed_factories)
 	}
 
 	/// **Lazily** updates this map according to a sequence of key and **infallible** factory **pairs**.
@@ -264,7 +314,7 @@ impl<K, V> Linotype<K, V> {
 		let keyed_factories = keyed_factories
 			.into_iter()
 			.map(|(key, factory)| (key, |k| Ok(factory(k))));
-		self.update_try_with_keyed(keyed_factories)
+		self.update_try_by_try_with_keyed(keyed_factories)
 			.map(unwrap_infallible)
 	}
 
@@ -410,7 +460,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		E: 'b,
 	{
 		self.as_non_pin_mut()
-			.update_try_with_keyed(keyed_factories)
+			.update_try_by_try_with_keyed(keyed_factories)
 			.map(|result| result.map(|(k, v)| (k, wrap_in_pin(v))))
 			.pipe(Box::new)
 	}

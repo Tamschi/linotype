@@ -175,6 +175,9 @@ impl<K, V> Linotype<K, V> {
 				let key = selector(&mut item)?;
 				let v = stale
 					.iter_mut()
+					//BUG:
+					// This must search in the same direction as the outer iterator is iterated,
+					// but [`iter::Map`] is potentially bidirectional!
 					.find_map(|(k, v)| match v {
 						Some(_) if key.deref() == unsafe { k.assume_init_ref() }.borrow() => v
 							.take()

@@ -179,7 +179,7 @@ impl<K, V> Linotype<K, V> {
 					// This must search in the same direction as the outer iterator is iterated,
 					// but [`iter::Map`] is potentially bidirectional!
 					.find_map(|(k, v)| match v {
-						Some(_) if key.deref() == unsafe { k.assume_init_ref() }.borrow() => v
+						Some(_) if &*key == unsafe { k.assume_init_ref() }.borrow() => v
 							.take()
 							.tap(|v| {
 								live.push((MaybeUninit::new(unsafe { k.as_ptr().read() }), *v))
@@ -207,14 +207,63 @@ impl<K, V> Linotype<K, V> {
 			})
 	}
 
-	/// **Lazily** updates this map according to a sequence of items and a **fallible** selector and **fallible** factory.
+	// The compiler seems to require a `Qr; 'b` constraint here, which would make this not work with my use case.
+	// I'm keeping this, commented out, because it's not trivial and would be a nicer solution.
+	//
+	// /// **Lazily** updates this map according to a sequence of items and a **fallible** selector and **fallible** factory.
+	// ///
+	// /// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
+	// pub fn update_try_by_try_with<'a: 'b, 'b, T, Qr, S, F, I, E>(
+	// 	&'a mut self,
+	// 	items: I,
+	// 	selector: S,
+	// 	factory: F,
+	// ) -> impl 'b + Iterator<Item = Result<(T, &'a mut V), E>>
+	// where
+	// 	K: Borrow<Qr::Target>,
+	// 	T: 'b,
+	// 	Qr: Deref,
+	// 	Qr::Target: Eq + ToOwned<Owned = K>,
+	// 	S: 'b + FnMut(&mut T) -> Result<Qr, E>,
+	// 	F: 'b + FnMut(&mut T, Qr) -> Result<V, E>,
+	// 	I: 'b + IntoIterator<Item = T>,
+	// 	E: 'b,
+	// {
+	// 	//FIXME: See <https://github.com/rust-lang/rust/issues/70263>.
+	// 	// Workaround from <https://users.rust-lang.org/t/inferred-closure-type-is-not-general-enough/61042>.
+
+	// 	fn infer_1<T, R, F: FnOnce(&mut T) -> R>(f: F) -> F { f }
+	// 	fn infer_2<T, U, R, F: FnOnce(&mut T, U) -> R>(f: F) -> F { f }
+
+	// 	self.update_try_by_keyed_try_with_keyed(items.into_iter().map(move |item| {
+	// 		let selector = NonNull::from(&mut selector);
+	// 		let factory = NonNull::from(&mut factory);
+	// 		(
+	// 			item,
+	// 			//SAFETY:
+	// 			// We know (due to `update_try_by_keyed_try_with_keyed`) that during each result iterator step,
+	// 			// the pointers above will be taken and the functions called without any opportunity for the iterator
+	// 			// to move, which means this outer closure here won't move during that time,
+	// 			// keeping selector and factory in place.
+	// 			//
+	// 			//BUG: Iterator::map is probably implement this way, but the specification doesn't actually
+	// 			// guarantee it I think, and which implementation we use may actually differ here… which
+	// 			// means I'll have to use a custom Map implementation that I *know* won't shift the closure around internally,
+	// 			// and in `update_try_by_keyed_try_with_keyed` I'll have to use one I know won't shift the iterator before calling the closure.
+	// 			infer_1(move |item| unsafe { selector.as_mut() }(item)),
+	// 			infer_2(move |item, key| unsafe { factory.as_mut() }(item, key)),
+	// 		)
+	// 	}))
+	// }
+
+	/// **Lazily** updates this map according to a sequence of item, **fallible** selector and **fallible** factory **triples**.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
 	pub fn update_try_by_try_with<'a: 'b, 'b, T, Qr, S, F, I, E>(
 		&'a mut self,
 		items: I,
-		selector: S,
-		factory: F,
+		mut selector: S,
+		mut factory: F,
 	) -> impl 'b + Iterator<Item = Result<(T, &'a mut V), E>>
 	where
 		K: Borrow<Qr::Target>,
@@ -226,91 +275,112 @@ impl<K, V> Linotype<K, V> {
 		I: 'b + IntoIterator<Item = T>,
 		E: 'b,
 	{
-		self.update_try_by_keyed_try_with_keyed(items.into_iter().map(move |item| {
-			let selector = NonNull::from(&mut selector);
-			let factory = NonNull::from(&mut factory);
-			(
-				item,
-				//SAFETY:
-				// We know (due to `update_try_by_keyed_try_with_keyed`) that during each result iterator step,
-				// the pointers above will be taken and the functions called without any opportunity for the iterator
-				// to move, which means this outer closure here won't move during that time,
-				// keeping selector and factory in place.
-				//
-				//BUG: Iterator::map is probably implement this way, but the specification doesn't actually
-				// guarantee it I think, and which implementation we use may actually differ here… which
-				// means I'll have to use a custom Map implementation that I *know* won't shift the closure around internally,
-				// and in `update_try_by_keyed_try_with_keyed` I'll have to use one I know won't shift the iterator before calling the closure.
-				move |item| unsafe { selector.as_mut() }(item),
-				move |item, key| unsafe { factory.as_mut() }(item, key),
-			)
-		}))
-	}
+		drop_stale(&mut self.stale, &mut self.dropped);
+		mem::swap(&mut self.live, &mut self.stale);
 
-	/// **Lazily** updates this map according to a sequence of keys and a **fallible** factory.
-	///
-	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_try_with<'a: 'b, 'b, Q, F, I, E>(
-		&'a mut self,
-		keys: I,
-		mut factory: F,
-	) -> impl 'b + Iterator<Item = Result<(&'b Q, &'a mut V), E>>
-	where
-		K: Borrow<Q>,
-		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&'b Q) -> Result<V, E>,
-		I: 'b + IntoIterator<Item = &'b Q>,
-		E: 'b,
-	{
-		let keyed_factories = keys.into_iter().map(move |key| {
-			let factory = RefCell::new(unsafe { &mut *(&mut factory as *mut _) });
-			(key, move |key| factory.borrow_mut()(key))
-		});
-		self.update_try_by_try_with_keyed(keyed_factories)
+		let mut stale_and_dropped =
+			scopeguard::guard((&mut self.stale, &mut self.dropped), |(stale, dropped)| {
+				drop_stale(stale, dropped)
+			});
+		let live = &mut self.live;
+		let values = &self.storage;
+
+		items.into_iter().map(move |mut item| {
+			// Double-references 😬
+			// Well, the compiler should be able to figure this out.
+			let (stale, dropped) = &mut *stale_and_dropped;
+			let key = selector(&mut item)?;
+			let v = stale
+					.iter_mut()
+					//BUG:
+					// This must search in the same direction as the outer iterator is iterated,
+					// but [`iter::Map`] is potentially bidirectional!
+					.find_map(|(k, v)| match v {
+						Some(_) if &*key == unsafe { k.assume_init_ref() }.borrow() => v
+							.take()
+							.tap(|v| {
+								live.push((MaybeUninit::new(unsafe { k.as_ptr().read() }), *v))
+							})
+							.map(|mut v| unsafe { v.as_mut() })
+							.map(Ok),
+						_ => None,
+					})
+					.unwrap_or_else(|| {
+						let k = key.to_owned();
+						let v = if let Some(mut v) = dropped.pop() {
+							unsafe {
+								v.as_ptr().write(factory(&mut item, key)?);
+								v.as_mut()
+							}
+						} else {
+							values.alloc(factory(&mut item, key)?)
+						};
+
+						// I'm *pretty* sure this is okay like that:
+						live.push((MaybeUninit::new(k), NonNull::new(v)));
+						Ok(v)
+					})?;
+			Ok((item, v))
+		})
 	}
 
 	/// **Lazily** updates this map according to a sequence of key and **infallible** factory **pairs**.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_with_keyed<'a: 'b, 'b, Q, F, I>(
+	pub fn update_by_keyed_with_keyed<'a: 'b, 'b, T, Qr, S, F, I>(
 		&'a mut self,
-		keyed_factories: I,
-	) -> impl 'b + Iterator<Item = (&'b Q, &'a mut V)>
+		items_selectors_factories: I,
+	) -> impl 'b + Iterator<Item = (T, &'a mut V)>
 	where
-		K: Borrow<Q>,
-		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&'b Q) -> V,
-		I: 'b + IntoIterator<Item = (&'b Q, F)>,
+		K: Borrow<Qr::Target>,
+		T: 'b,
+		Qr: Deref,
+		Qr::Target: Eq + ToOwned<Owned = K>,
+		S: 'b + FnOnce(&mut T) -> Qr,
+		F: 'b + FnOnce(&mut T, Qr) -> V,
+		I: 'b + IntoIterator<Item = (T, S, F)>,
 	{
-		let keyed_factories = keyed_factories
-			.into_iter()
-			.map(|(key, factory)| (key, |k| Ok(factory(k))));
-		self.update_try_by_try_with_keyed(keyed_factories)
+		let items_selectors_factories =
+			items_selectors_factories
+				.into_iter()
+				.map(|(key, selector, factory)| {
+					(
+						key,
+						|item: &mut T| Ok(selector(item)),
+						|item: &mut T, key| Ok(factory(item, key)),
+					)
+				});
+		self.update_try_by_keyed_try_with_keyed(items_selectors_factories)
 			.map(unwrap_infallible)
 	}
 
 	/// **Lazily** updates this map according to a sequence of keys and an **infallible** factory.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_with<'a: 'b, 'b, Q, F, I>(
+	pub fn update_by_with<'a: 'b, 'b, T, Qr, S, F, I>(
 		&'a mut self,
-		keys: I,
+		items: I,
+		mut selector: S,
 		mut factory: F,
-	) -> impl 'b + Iterator<Item = (&'b Q, &'a mut V)>
+	) -> impl 'b + Iterator<Item = (T, &'a mut V)>
 	where
-		K: Borrow<Q>,
-		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&'b Q) -> V,
-		I: 'b + IntoIterator<Item = &'b Q>,
+		K: Borrow<Qr::Target>,
+		T: 'b,
+		Qr: Deref,
+		Qr::Target: Eq + ToOwned<Owned = K>,
+		S: 'b + FnOnce(&mut T) -> Qr,
+		F: 'b + FnOnce(&mut T, Qr) -> V,
+		I: 'b + IntoIterator<Item = T>,
 	{
-		let keyed_factories = keys.into_iter().map(move |key| {
-			let factory = RefCell::new(unsafe { &mut *(&mut factory as *mut _) });
-			(key, move |key| factory.borrow_mut()(key))
-		});
-		self.update_with_keyed(keyed_factories)
+		self.update_try_by_try_with(
+			items,
+			|item| Ok(selector(item)),
+			|item, key| Ok(factory(item, key)),
+		)
+		.map(unwrap_infallible)
 	}
 }
 
-fn unwrap_infallible<T>(infallible: Result<T, Infallible>) -> T {
+const fn unwrap_infallible<T>(infallible: Result<T, Infallible>) -> T {
 	infallible.unwrap()
 }

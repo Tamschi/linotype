@@ -1,3 +1,4 @@
+use crate::Linotype;
 use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
 use core::{
 	borrow::Borrow,
@@ -12,7 +13,6 @@ use core::{
 use scopeguard::ScopeGuard;
 use tap::{Pipe, Tap};
 use typed_arena::Arena;
-use crate::Linotype;
 
 /// The value-pinning [`Linotype`] API.
 ///
@@ -95,98 +95,98 @@ pub trait PinningLinotype {
 		F: 'b + FnMut(&'b Q) -> Self::V,
 		I: 'b + IntoIterator<Item = &'b Q>;
 }
-impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
-	type K = K;
-	type V = V;
+// impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
+// 	type K = K;
+// 	type V = V;
 
-	/// Retrieves a reference to the first value associated with `key`, iff available.
-	fn get<Q>(&self, key: &Q) -> Option<Pin<&V>>
-	where
-		K: Borrow<Q>,
-		Q: Eq,
-	{
-		self.as_non_pin().get(key).map(wrap_in_pin)
-	}
+// 	/// Retrieves a reference to the first value associated with `key`, iff available.
+// 	fn get<Q>(&self, key: &Q) -> Option<Pin<&V>>
+// 	where
+// 		K: Borrow<Q>,
+// 		Q: Eq,
+// 	{
+// 		self.as_non_pin().get(key).map(wrap_in_pin)
+// 	}
 
-	/// Retrieves a mutable reference to the first value associated with `key`, iff available.
-	fn get_mut<Q>(&mut self, key: &Q) -> Option<Pin<&mut V>>
-	where
-		K: Borrow<Q>,
-		Q: Eq,
-	{
-		self.as_non_pin_mut().get_mut(key).map(wrap_in_pin)
-	}
+// 	/// Retrieves a mutable reference to the first value associated with `key`, iff available.
+// 	fn get_mut<Q>(&mut self, key: &Q) -> Option<Pin<&mut V>>
+// 	where
+// 		K: Borrow<Q>,
+// 		Q: Eq,
+// 	{
+// 		self.as_non_pin_mut().get_mut(key).map(wrap_in_pin)
+// 	}
 
-	#[allow(clippy::type_complexity)]
-	fn update_try_with_keyed<'a: 'b, 'b, Q, F, I, E>(
-		&'a mut self,
-		keyed_factories: I,
-	) -> Box<dyn 'b + Iterator<Item = Result<(&'b Q, Pin<&'a mut V>), E>>>
-	where
-		K: Borrow<Q>,
-		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&'b Q) -> Result<V, E>,
-		I: 'b + IntoIterator<Item = (&'b Q, F)>,
-		E: 'b,
-	{
-		self.as_non_pin_mut()
-			.update_try_by_try_with_keyed(keyed_factories)
-			.map(|result| result.map(|(k, v)| (k, wrap_in_pin(v))))
-			.pipe(Box::new)
-	}
+// 	#[allow(clippy::type_complexity)]
+// 	fn update_try_with_keyed<'a: 'b, 'b, Q, F, I, E>(
+// 		&'a mut self,
+// 		keyed_factories: I,
+// 	) -> Box<dyn 'b + Iterator<Item = Result<(&'b Q, Pin<&'a mut V>), E>>>
+// 	where
+// 		K: Borrow<Q>,
+// 		Q: 'b + Eq + ToOwned<Owned = K>,
+// 		F: 'b + FnOnce(&'b Q) -> Result<V, E>,
+// 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
+// 		E: 'b,
+// 	{
+// 		self.as_non_pin_mut()
+// 			.update_try_by_try_with_keyed(keyed_factories)
+// 			.map(|result| result.map(|(k, v)| (k, wrap_in_pin(v))))
+// 			.pipe(Box::new)
+// 	}
 
-	#[allow(clippy::type_complexity)]
-	fn update_try_with<'a: 'b, 'b, Q, F, I, E>(
-		&'a mut self,
-		keys: I,
-		factory: F,
-	) -> Box<dyn 'b + Iterator<Item = Result<(&'b Q, Pin<&'a mut V>), E>>>
-	where
-		K: Borrow<Q>,
-		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&'b Q) -> Result<V, E>,
-		I: 'b + IntoIterator<Item = &'b Q>,
-		E: 'b,
-	{
-		self.as_non_pin_mut()
-			.update_try_with(keys, factory)
-			.map(|result| result.map(|(k, v)| (k, wrap_in_pin(v))))
-			.pipe(Box::new)
-	}
+// 	#[allow(clippy::type_complexity)]
+// 	fn update_try_with<'a: 'b, 'b, Q, F, I, E>(
+// 		&'a mut self,
+// 		keys: I,
+// 		factory: F,
+// 	) -> Box<dyn 'b + Iterator<Item = Result<(&'b Q, Pin<&'a mut V>), E>>>
+// 	where
+// 		K: Borrow<Q>,
+// 		Q: 'b + Eq + ToOwned<Owned = K>,
+// 		F: 'b + FnMut(&'b Q) -> Result<V, E>,
+// 		I: 'b + IntoIterator<Item = &'b Q>,
+// 		E: 'b,
+// 	{
+// 		self.as_non_pin_mut()
+// 			.update_try_with(keys, factory)
+// 			.map(|result| result.map(|(k, v)| (k, wrap_in_pin(v))))
+// 			.pipe(Box::new)
+// 	}
 
-	fn update_with_keyed<'a: 'b, 'b, Q, F, I>(
-		&'a mut self,
-		keyed_factories: I,
-	) -> Box<dyn 'b + Iterator<Item = (&'b Q, Pin<&'a mut V>)>>
-	where
-		K: Borrow<Q>,
-		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnOnce(&'b Q) -> V,
-		I: 'b + IntoIterator<Item = (&'b Q, F)>,
-	{
-		self.as_non_pin_mut()
-			.update_with_keyed(keyed_factories)
-			.map(|(k, v)| (k, wrap_in_pin(v)))
-			.pipe(Box::new)
-	}
+// 	fn update_with_keyed<'a: 'b, 'b, Q, F, I>(
+// 		&'a mut self,
+// 		keyed_factories: I,
+// 	) -> Box<dyn 'b + Iterator<Item = (&'b Q, Pin<&'a mut V>)>>
+// 	where
+// 		K: Borrow<Q>,
+// 		Q: 'b + Eq + ToOwned<Owned = K>,
+// 		F: 'b + FnOnce(&'b Q) -> V,
+// 		I: 'b + IntoIterator<Item = (&'b Q, F)>,
+// 	{
+// 		self.as_non_pin_mut()
+// 			.update_with_keyed(keyed_factories)
+// 			.map(|(k, v)| (k, wrap_in_pin(v)))
+// 			.pipe(Box::new)
+// 	}
 
-	fn update_with<'a: 'b, 'b, Q, F, I>(
-		&'a mut self,
-		keys: I,
-		factory: F,
-	) -> Box<dyn 'b + Iterator<Item = (&'b Q, Pin<&'a mut V>)>>
-	where
-		K: Borrow<Q>,
-		Q: 'b + Eq + ToOwned<Owned = K>,
-		F: 'b + FnMut(&'b Q) -> V,
-		I: 'b + IntoIterator<Item = &'b Q>,
-	{
-		self.as_non_pin_mut()
-			.update_with(keys, factory)
-			.map(|(k, v)| (k, wrap_in_pin(v)))
-			.pipe(Box::new)
-	}
-}
+// 	fn update_with<'a: 'b, 'b, Q, F, I>(
+// 		&'a mut self,
+// 		keys: I,
+// 		factory: F,
+// 	) -> Box<dyn 'b + Iterator<Item = (&'b Q, Pin<&'a mut V>)>>
+// 	where
+// 		K: Borrow<Q>,
+// 		Q: 'b + Eq + ToOwned<Owned = K>,
+// 		F: 'b + FnMut(&'b Q) -> V,
+// 		I: 'b + IntoIterator<Item = &'b Q>,
+// 	{
+// 		self.as_non_pin_mut()
+// 			.update_with(keys, factory)
+// 			.map(|(k, v)| (k, wrap_in_pin(v)))
+// 			.pipe(Box::new)
+// 	}
+// }
 
 /// # Safety
 ///

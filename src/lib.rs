@@ -192,7 +192,7 @@ impl<K, V> Linotype<K, V> {
 			scopeguard::guard((&mut self.stale, &mut self.dropped), |(stale, dropped)| {
 				drop_stale(stale, dropped)
 			});
-		let hot_index = &mut self.live;
+		let live = &mut self.live;
 		let values = &self.storage;
 
 		keyed_factories.into_iter().map(move |(key, factory)| {
@@ -204,9 +204,7 @@ impl<K, V> Linotype<K, V> {
 				.find_map(|(k, v)| match v {
 					Some(_) if key == unsafe { k.assume_init_ref() }.borrow() => v
 						.take()
-						.tap(|v| {
-							hot_index.push((MaybeUninit::new(unsafe { k.as_ptr().read() }), *v))
-						})
+						.tap(|v| live.push((MaybeUninit::new(unsafe { k.as_ptr().read() }), *v)))
 						.map(|mut v| (key, unsafe { v.as_mut() }))
 						.map(Ok),
 					_ => None,
@@ -222,7 +220,7 @@ impl<K, V> Linotype<K, V> {
 					};
 
 					// I'm *pretty* sure this is okay like that:
-					hot_index.push((MaybeUninit::new(key.to_owned()), NonNull::new(v)));
+					live.push((MaybeUninit::new(key.to_owned()), NonNull::new(v)));
 					Ok((key, v))
 				})
 		})

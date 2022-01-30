@@ -37,7 +37,7 @@
 //!   This is mainly due to me right now needing only a (very) limited subset of what this type could in theory support.
 //!
 //!   The most significant omission right now is likely any way to index the collection directly, or to extract entries by value.
-//! 
+//!
 //! [Visit the repository](https://github.com/Tamschi/linotype) to file an issue or pull-request.
 #![no_std]
 #![doc(html_root_url = "https://docs.rs/linotype/0.0.1")]

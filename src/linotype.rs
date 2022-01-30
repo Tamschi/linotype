@@ -79,23 +79,23 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 
 /// This currently uses
 ///
-/// ```
+/// ```ignore
 /// K: Borrow<Q>,
 /// T: 'b,
 /// Q: Eq + ToOwned<Owned = K>,
 /// S: 'b + FnOnce(&mut T) -> Result<Qr, E>,
-/// F: 'b + FnOnce(&mut T, ) -> Result<V, E>,
+/// F: 'b + FnOnce(&mut T) -> Result<V, E>,
 /// ```
 ///
 /// instead of
 ///
-///  ```
-/// K: Borrow<Q>,
+///  ```compile_fail
+/// K: Borrow<Qr::Target>,
 /// T: 'b,
-//
-/// Q: Eq + ToOwned<Owned = K>,
-/// S: 'b + FnOnce(&mut T) -> Result<&Q, E>,
-/// F: 'b + FnOnce(&mut T, ) -> Result<V, E>,
+/// Qr: Deref,
+/// Qr::Target: Eq + ToOwned<Owned = K>,
+/// S: 'b + FnOnce(&mut T) -> Result<Qr, E>,
+/// F: 'b + FnOnce(&mut T) -> Result<V, E>,
 /// ```
 ///
 /// because the latter has the compiler ask for lifetime bounds on `Qr`, or a duplicate implementation entirely.

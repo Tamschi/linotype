@@ -230,7 +230,7 @@ impl<K, V> Linotype<K, V> {
 			})
 	}
 
-	/// **Lazily** updates this map according to a sequence of items and a **fallible** selector and **fallible** factory.
+	/// **Lazily** updates this map according to a sequence of items, a **fallible** selector and **fallible** factory.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
 	pub fn update_try_by_try_with<'a: 'b, 'b, T, Q, S, F, I, E>(
@@ -275,7 +275,7 @@ impl<K, V> Linotype<K, V> {
 		}))
 	}
 
-	/// **Lazily** updates this map according to a sequence of key and **infallible** factory **pairs**.
+	/// **Lazily** updates this map according to a sequence of item, selector and factory **triples**.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
 	pub fn update_by_keyed_with_keyed<'a: 'b, 'b, T, Q, S, F, I>(
@@ -308,7 +308,7 @@ impl<K, V> Linotype<K, V> {
 			.map(unwrap_infallible)
 	}
 
-	/// **Lazily** updates this map according to a sequence of keys, and **infallible** selector and an **infallible** factory.
+	/// **Lazily** updates this map according to a sequence of items, a selector and a factory.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
 	pub fn update_by_with<'a: 'b, 'b, T, Q: 'b, S, F, I>(

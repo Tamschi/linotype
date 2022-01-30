@@ -1,8 +1,8 @@
-//! A guaranteed-to-be-cohesive in memory **direction-aware** [`core::iter::Map`] re-implementation.
+//! A guaranteed-to-be-cohesive in memory **direction-aware** [`Map`](`core::iter::Map`) re-implementation.
 
 use core::iter::FusedIterator;
 
-/// An [`core::iter::Map`] re-implementation that tells its closure the direction it runs in
+/// A [`Map`](`core::iter::Map`) re-implementation that tells its closure the direction it runs in
 /// each time [`Iterator::next`] or [`DoubleEndedIterator::next_back`] is called.
 ///
 /// It makes the same cohesiveness guarantees as [`CohesiveMap`](`crate::cohesive_map::CohesiveMap`);

@@ -1,8 +1,8 @@
-//! A guaranteed-to-be-cohesive in memory [`core::iter::Map`] re-implementation.
+//! A guaranteed-to-be-cohesive in memory [`Map`](`core::iter::Map`) re-implementation.
 
 use core::iter::FusedIterator;
 
-/// An [`core::iter::Map`] re-implementation that… really does nothing all that significantly differently right now.
+/// A [`Map`](`core::iter::Map`) re-implementation that… really does nothing all that significantly differently right now.
 ///
 /// It's likely a little slower than the standard library's, due to relying on default implementations more.
 ///

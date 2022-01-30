@@ -23,7 +23,7 @@
 //!
 //! - [`Linotype`] updates have quadratic time complexity over the number of items.
 //!
-//!   This could largely be mitigated by remembering how many entries in `stale` already have [`None`] instead of a value pointer.
+//!   This could largely be mitigated by remembering how many entries in `stale` already have [`None`] instead of a value pointer, counting from each end.
 //!
 //! - Return types are improper.
 //!

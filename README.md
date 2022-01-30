@@ -32,7 +32,38 @@ cargo add linotype
 ## Example
 
 ```rust
-// TODO_EXAMPLE
+use linotype::Linotype;
+
+// This is tricky to write as closure except directly as parameter.
+// See the `higher-order-closure` in the dependencies for a workaround.
+fn selector<'a>(item: &'a mut &'static str) -> &'a str {
+  item
+}
+
+let mut counter = (0..).into_iter();
+let mut factory = move |_item: &mut _| {
+  counter.next().unwrap()
+};
+
+// Inferred to store `String` keys (`K`) and `{integer}` values (`V`).
+let mut linotype = Linotype::new();
+let mut update = |iter: &[&'static str]| linotype
+  .update_by_with(
+    iter.into_iter().copied(), // : IntoIter<Item = T>, here: T = &'static str
+    selector,                 // : FnMut(&mut T) -> &Q,
+    &mut factory,            // : FnMut(&mut T) -> V,
+  ) // : FnMut(&mut)
+  .map(|(_key, value)| *value)
+  .collect::<Vec<_>>();  // Left-over values are dropped here. Their slots are recycled.
+let update = &mut update;
+
+assert_eq!(update(&["a", "b", "c"]), vec![0, 1, 2]);
+assert_eq!(update(&["a", "b", "c", "d"]), vec![0, 1, 2, 3]);
+assert_eq!(update(&["a", "b", "c"]), vec![0, 1, 2]);
+assert_eq!(update(&["a", "b", "c", "d"]), vec![0, 1, 2, 4]);
+assert_eq!(update(&["e", "c", "b", "a"]), vec![5, 2, 1, 0]);
+
+// Update methods for fallible closures and per-item closures are also available.
 ```
 
 ## License

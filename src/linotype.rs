@@ -88,7 +88,7 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 /// ```ignore
 /// K: Borrow<Q>,
 /// T: 'b,
-/// Q: Eq + ToOwned<Owned = K>,
+/// Q: ?Sized + Eq + ToOwned<Owned = K>,
 /// S: 'b + FnOnce(&mut T) -> Result<Qr, E>,
 /// F: 'b + FnOnce(&mut T) -> Result<V, E>,
 /// ```
@@ -99,7 +99,7 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 /// K: Borrow<Qr::Target>,
 /// T: 'b,
 /// Qr: Deref,
-/// Qr::Target: Eq + ToOwned<Owned = K>,
+/// Qr::Target: ?Sized + Eq + ToOwned<Owned = K>,
 /// S: 'b + FnOnce(&mut T) -> Result<Qr, E>,
 /// F: 'b + FnOnce(&mut T) -> Result<V, E>,
 /// ```
@@ -145,7 +145,7 @@ impl<K, V> Linotype<K, V> {
 	pub fn get<Q>(&self, key: &Q) -> Option<&V>
 	where
 		K: Borrow<Q>,
-		Q: Eq,
+		Q: ?Sized + Eq,
 	{
 		self.live.iter().find_map(|(k, v)| match v {
 			Some(v) if key == unsafe { k.assume_init_ref() }.borrow() => {
@@ -159,7 +159,7 @@ impl<K, V> Linotype<K, V> {
 	pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
 	where
 		K: Borrow<Q>,
-		Q: Eq,
+		Q: ?Sized + Eq,
 	{
 		self.live.iter_mut().find_map(|(k, v)| match v {
 			Some(v) if key == unsafe { k.assume_init_ref() }.borrow() => {
@@ -179,7 +179,7 @@ impl<K, V> Linotype<K, V> {
 	where
 		K: Borrow<Q>,
 		T: 'b,
-		Q: Eq + ToOwned<Owned = K>,
+		Q: ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnOnce(&mut T) -> Result<&Q, E>,
 		F: 'b + FnOnce(&mut T) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
@@ -249,7 +249,7 @@ impl<K, V> Linotype<K, V> {
 	where
 		K: Borrow<Q>,
 		T: 'b,
-		Q: 'b + Eq + ToOwned<Owned = K>,
+		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnMut(&mut T) -> Result<&Q, E>,
 		F: 'b + FnMut(&mut T) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = T>,
@@ -266,7 +266,7 @@ impl<K, V> Linotype<K, V> {
 				// opportunity for the iterator to move, which means this outer closure here won't move during that time,
 				// keeping selector and factory in place.
 				higher_order_closure! {
-					#![with<T, Q, E>]
+					#![with<T, Q: ?Sized, E>]
 					move |item: &mut T| -> Result<&Q, E> {
 						(unsafe { selector.as_mut() })(item)
 					}
@@ -286,7 +286,7 @@ impl<K, V> Linotype<K, V> {
 	where
 		K: Borrow<Q>,
 		T: 'b,
-		Q: 'b + Eq + ToOwned<Owned = K>,
+		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnOnce(&mut T) -> &Q,
 		F: 'b + FnOnce(&mut T) -> V,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
@@ -296,7 +296,7 @@ impl<K, V> Linotype<K, V> {
 				(
 					key,
 					higher_order_closure! {
-						#![with<T, Q>]
+						#![with<T, Q: ?Sized>]
 						|item: &mut T| -> Result<&Q, Infallible> {
 							Ok(selector(item))
 						}
@@ -311,7 +311,7 @@ impl<K, V> Linotype<K, V> {
 	/// **Lazily** updates this map according to a sequence of items, a selector and a factory.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_by_with<'a: 'b, 'b, T, Q: 'b, S, F, I>(
+	pub fn update_by_with<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items: I,
 		mut selector: S,
@@ -320,7 +320,7 @@ impl<K, V> Linotype<K, V> {
 	where
 		K: Borrow<Q>,
 		T: 'b,
-		Q: Eq + ToOwned<Owned = K>,
+		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnMut(&mut T) -> &Q,
 		F: 'b + FnMut(&mut T) -> V,
 		I: 'b + IntoIterator<Item = T>,

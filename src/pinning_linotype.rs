@@ -45,13 +45,13 @@ pub trait PinningLinotype: Sealed {
 	fn get<Q>(&self, key: &Q) -> Option<Pin<&Self::V>>
 	where
 		Self::K: Borrow<Q>,
-		Q: Eq;
+		Q: ?Sized + Eq;
 
 	/// Retrieves a mutable reference to the first value associated with `key`, iff available.
 	fn get_mut<Q>(&mut self, key: &Q) -> Option<Pin<&mut Self::V>>
 	where
 		Self::K: Borrow<Q>,
-		Q: Eq;
+		Q: ?Sized + Eq;
 
 	/// **Lazily** updates this map according to a sequence of item, **fallible** selector and **fallible** factory **triples**.
 	///
@@ -64,7 +64,7 @@ pub trait PinningLinotype: Sealed {
 	where
 		Self::K: Borrow<Q>,
 		T: 'b,
-		Q: 'b + Eq + ToOwned<Owned = Self::K>,
+		Q: 'b + ?Sized + Eq + ToOwned<Owned = Self::K>,
 		S: 'b + FnOnce(&mut T) -> Result<&Q, E>,
 		F: 'b + FnOnce(&mut T) -> Result<Self::V, E>,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
@@ -83,7 +83,7 @@ pub trait PinningLinotype: Sealed {
 	where
 		Self::K: Borrow<Q>,
 		T: 'b,
-		Q: 'b + Eq + ToOwned<Owned = Self::K>,
+		Q: 'b + ?Sized + Eq + ToOwned<Owned = Self::K>,
 		S: 'b + FnMut(&mut T) -> Result<&Q, E>,
 		F: 'b + FnMut(&mut T) -> Result<Self::V, E>,
 		I: 'b + IntoIterator<Item = T>,
@@ -99,7 +99,7 @@ pub trait PinningLinotype: Sealed {
 	where
 		Self::K: Borrow<Q>,
 		T: 'b,
-		Q: 'b + Eq + ToOwned<Owned = Self::K>,
+		Q: 'b + ?Sized + Eq + ToOwned<Owned = Self::K>,
 		S: 'b + FnOnce(&mut T) -> &Q,
 		F: 'b + FnOnce(&mut T) -> Self::V,
 		I: 'b + IntoIterator<Item = (T, S, F)>;
@@ -107,7 +107,7 @@ pub trait PinningLinotype: Sealed {
 	/// **Lazily** updates this map according to a sequence of items, a selector and a factory.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	fn update_by_with<'a: 'b, 'b, T, Q: 'b, S, F, I>(
+	fn update_by_with<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items: I,
 		selector: S,
@@ -116,7 +116,7 @@ pub trait PinningLinotype: Sealed {
 	where
 		Self::K: Borrow<Q>,
 		T: 'b,
-		Q: Eq + ToOwned<Owned = Self::K>,
+		Q: 'b + ?Sized + Eq + ToOwned<Owned = Self::K>,
 		S: 'b + FnMut(&mut T) -> &Q,
 		F: 'b + FnMut(&mut T) -> Self::V,
 		I: 'b + IntoIterator<Item = T>;
@@ -138,7 +138,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	fn get<Q>(&self, key: &Q) -> Option<Pin<&V>>
 	where
 		K: Borrow<Q>,
-		Q: Eq,
+		Q: ?Sized + Eq,
 	{
 		self.as_non_pin().get(key).map(wrap_in_pin)
 	}
@@ -146,7 +146,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	fn get_mut<Q>(&mut self, key: &Q) -> Option<Pin<&mut V>>
 	where
 		K: Borrow<Q>,
-		Q: Eq,
+		Q: ?Sized + Eq,
 	{
 		self.as_non_pin_mut().get_mut(key).map(wrap_in_pin)
 	}
@@ -159,7 +159,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	where
 		K: Borrow<Q>,
 		T: 'b,
-		Q: 'b + Eq + ToOwned<Owned = K>,
+		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnOnce(&mut T) -> Result<&Q, E>,
 		F: 'b + FnOnce(&mut T) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
@@ -181,7 +181,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	where
 		K: Borrow<Q>,
 		T: 'b,
-		Q: 'b + Eq + ToOwned<Owned = K>,
+		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnMut(&mut T) -> Result<&Q, E>,
 		F: 'b + FnMut(&mut T) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = T>,
@@ -200,7 +200,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	where
 		K: Borrow<Q>,
 		T: 'b,
-		Q: 'b + Eq + ToOwned<Owned = K>,
+		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnOnce(&mut T) -> &Q,
 		F: 'b + FnOnce(&mut T) -> V,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
@@ -211,7 +211,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 			.pipe(Box::new)
 	}
 
-	fn update_by_with<'a: 'b, 'b, T, Q: 'b, S, F, I>(
+	fn update_by_with<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items: I,
 		selector: S,
@@ -220,7 +220,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	where
 		K: Borrow<Q>,
 		T: 'b,
-		Q: Eq + ToOwned<Owned = K>,
+		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnMut(&mut T) -> &Q,
 		F: 'b + FnMut(&mut T) -> V,
 		I: 'b + IntoIterator<Item = T>,

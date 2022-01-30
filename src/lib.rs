@@ -28,8 +28,10 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+pub mod cohesive_map;
 mod linotype;
 mod pinning_linotype;
+pub mod shunting_map;
 
 pub use self::linotype::Linotype;
 pub use pinning_linotype::PinningLinotype;

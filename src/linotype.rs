@@ -1,4 +1,8 @@
-use crate::Index;
+use crate::{
+	cohesive_map::CohesiveMapExt,
+	shunting_map::{Direction, ShuntingMapExt},
+	Index,
+};
 use alloc::{borrow::ToOwned, vec::Vec};
 use core::{
 	borrow::Borrow,
@@ -185,28 +189,25 @@ impl<K, V> Linotype<K, V> {
 		let live = &mut self.live;
 		let values = &self.storage;
 
-		items_selectors_factories
-			.into_iter()
-			.map(move |(mut item, selector, factory)| {
+		items_selectors_factories.into_iter().shunting_map(
+			move |(mut item, selector, factory), direction| {
 				// Double-references 😬
 				// Well, the compiler should be able to figure this out.
 				let (stale, dropped) = &mut *stale_and_dropped;
 				let key = selector(&mut item)?;
-				let v = stale
-					.iter_mut()
-					//BUG:
-					// This must search in the same direction as the outer iterator is iterated,
-					// but [`iter::Map`] is potentially bidirectional!
-					.find_map(|(k, v)| match v {
-						Some(_) if &*key == unsafe { k.assume_init_ref() }.borrow() => v
-							.take()
-							.tap(|v| {
-								live.push((MaybeUninit::new(unsafe { k.as_ptr().read() }), *v))
-							})
-							.map(|mut v| unsafe { v.as_mut() })
-							.map(Ok),
-						_ => None,
-					});
+				let mut stale = stale.iter_mut();
+				let predicate = |(k, v): &mut (MaybeUninit<K>, _)| match v {
+					Some(_) if &*key == unsafe { k.assume_init_ref() }.borrow() => v
+						.take()
+						.tap(|v| live.push((MaybeUninit::new(unsafe { k.as_ptr().read() }), *v)))
+						.map(|mut v| unsafe { v.as_mut() })
+						.map(Ok),
+					_ => None,
+				};
+				let v = match direction {
+					Direction::Forwards => stale.find_map(predicate),
+					Direction::Backwards => stale.rev().find_map(predicate),
+				};
 
 				if let Some(v) = v {
 					v.map(|v| (item, v))
@@ -225,7 +226,8 @@ impl<K, V> Linotype<K, V> {
 					live.push((MaybeUninit::new(k), NonNull::new(v)));
 					Ok((item, v))
 				}
-			})
+			},
+		)
 	}
 
 	/// **Lazily** updates this map according to a sequence of items, a **fallible** selector and **fallible** factory.
@@ -246,21 +248,16 @@ impl<K, V> Linotype<K, V> {
 		I: 'b + IntoIterator<Item = T>,
 		E: 'b,
 	{
-		self.update_try_by_keyed_try_with_keyed(items.into_iter().map(move |item| {
+		self.update_try_by_keyed_try_with_keyed(items.into_iter().cohesive_map(move |item| {
 			let mut selector = NonNull::from(&mut selector);
 			let mut factory = NonNull::from(&mut factory);
 			(
 				item,
 				//SAFETY:
-				// We know (due to `update_try_by_keyed_try_with_keyed`) that during each result iterator step,
-				// the pointers above will be taken and the functions called without any opportunity for the iterator
-				// to move, which means this outer closure here won't move during that time,
+				// We know (due to `update_try_by_keyed_try_with_keyed`'s implementation details and `CohesiveMap`)
+				// that during each result iterator step, the pointers above will be taken and the functions called without any
+				// opportunity for the iterator to move, which means this outer closure here won't move during that time,
 				// keeping selector and factory in place.
-				//
-				//BUG: Iterator::map is probably implement this way, but the specification doesn't actually
-				// guarantee it I think, and which implementation we use may actually differ here… which
-				// means I'll have to use a custom Map implementation that I *know* won't shift the closure around internally,
-				// and in `update_try_by_keyed_try_with_keyed` I'll have to use one I know won't shift the iterator before calling the closure.
 				higher_order_closure! {
 					#![with<T, Q, E>]
 					move |item: &mut T| -> Result<&Q, E> {

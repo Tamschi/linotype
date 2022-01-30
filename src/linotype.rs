@@ -8,6 +8,7 @@ use core::{
 	pin::Pin,
 	ptr::{drop_in_place, NonNull},
 };
+use higher_order_closure::higher_order_closure;
 use scopeguard::ScopeGuard;
 use tap::{Pipe, Tap};
 use typed_arena::Arena;
@@ -245,12 +246,6 @@ impl<K, V> Linotype<K, V> {
 		I: 'b + IntoIterator<Item = T>,
 		E: 'b,
 	{
-		//FIXME: See <https://github.com/rust-lang/rust/issues/70263>.
-		// Workaround from <https://users.rust-lang.org/t/inferred-closure-type-is-not-general-enough/61042>.
-		fn infer<T, R, E, F: FnMut(&mut T) -> Result<&R, E>>(f: F) -> F {
-			f
-		}
-
 		self.update_try_by_keyed_try_with_keyed(items.into_iter().map(move |item| {
 			let mut selector = NonNull::from(&mut selector);
 			let mut factory = NonNull::from(&mut factory);
@@ -266,7 +261,12 @@ impl<K, V> Linotype<K, V> {
 				// guarantee it I think, and which implementation we use may actually differ here… which
 				// means I'll have to use a custom Map implementation that I *know* won't shift the closure around internally,
 				// and in `update_try_by_keyed_try_with_keyed` I'll have to use one I know won't shift the iterator before calling the closure.
-				infer(move |item| unsafe { selector.as_mut() }(item)),
+				higher_order_closure! {
+					#![with<T, Q, E>]
+					move |item: &mut T| -> Result<&Q, E> {
+						(unsafe { selector.as_mut() })(item)
+					}
+				},
 				move |item: &mut T| unsafe { factory.as_mut() }(item)?.pipe(Ok),
 			)
 		}))
@@ -287,22 +287,21 @@ impl<K, V> Linotype<K, V> {
 		F: 'b + FnOnce(&mut T) -> V,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
 	{
-		//FIXME: See <https://github.com/rust-lang/rust/issues/70263>.
-		// Workaround from <https://users.rust-lang.org/t/inferred-closure-type-is-not-general-enough/61042>.
-		fn infer<T, R, E, F: FnOnce(&mut T) -> Result<&R, E>>(f: F) -> F {
-			f
-		}
-
-		let items_selectors_factories =
-			items_selectors_factories
-				.into_iter()
-				.map(|(key, selector, factory)| {
-					(key, infer(|item| Ok(selector(item))), |item: &mut T| {
-						Ok(factory(item))
-					})
-				});
-		self.update_try_by_keyed_try_with_keyed(items_selectors_factories)
-			.map(unwrap_infallible)
+		self.update_try_by_keyed_try_with_keyed(items_selectors_factories.into_iter().map(
+			|(key, selector, factory)| {
+				(
+					key,
+					higher_order_closure! {
+						#![with<T, Q>]
+						|item: &mut T| -> Result<&Q, Infallible> {
+							Ok(selector(item))
+						}
+					},
+					|item: &mut T| Ok(factory(item)),
+				)
+			},
+		))
+		.map(unwrap_infallible)
 	}
 
 	/// **Lazily** updates this map according to a sequence of items, a selector and a factory.

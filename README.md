@@ -52,7 +52,7 @@ let mut update = |iter: &[&'static str]| linotype
     iter.into_iter().copied(), // : IntoIter<Item = T>, here: T = &'static str
     selector,                 // : FnMut(&mut T) -> &Q,
     &mut factory,            // : FnMut(&mut T) -> V,
-  ) // : FnMut(&mut)
+  )
   .map(|(_item, value)| *value)
   .collect::<Vec<_>>();  // Left-over values are dropped here. Their slots are recycled.
 let update = &mut update;

@@ -31,7 +31,7 @@ extern crate std;
 mod linotype;
 mod pinning_linotype;
 
-pub use linotype::Linotype;
+pub use self::linotype::Linotype;
 pub use pinning_linotype::PinningLinotype;
 
 use alloc::{vec::Vec};

@@ -23,7 +23,8 @@ pub struct Linotype<K, V> {
 	stale: Index<K, V>,
 	storage: Arena<V>,
 	dropped: Vec<NonNull<V>>,
-	pinning: bool,
+	/// Used by [`PinningLinotype::unpin`](`crate::PinningLinotype::unpin`).
+	pub(crate) pinning: bool,
 }
 
 impl<K, V> Default for Linotype<K, V> {
@@ -40,18 +41,18 @@ impl<K, V> Drop for Linotype<K, V> {
 		impl<T> Extend<T> for Waste {
 			fn extend<I: IntoIterator<Item = T>>(&mut self, _: I) {}
 		}
-		drop_stale(&mut self.stale, &mut Waste);
-		drop_stale(&mut self.live, &mut Waste);
+		drop_stale(&mut self.stale, &mut Waste, self.pinning);
+		drop_stale(&mut self.live, &mut Waste, self.pinning);
 	}
 }
 
-fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V>>) {
+fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V>>, pinning: bool) {
 	#[cfg(feature = "std")]
 	let mut panic = None;
 
-	let guard = scopeguard::guard((), |()| {
+	let guard = pinning.then(|| scopeguard::guard((), |()| {
 		panic!("`Pin<Linotype>`: A key or value drop implementation panicked. The `drop`-guarantee cannot be upheld without the `\"std\"` feature.")
-	});
+	}));
 
 	for (k, v) in stale.drain(..) {
 		match v {
@@ -74,7 +75,7 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 			},
 		}
 	}
-	ScopeGuard::into_inner(guard);
+	guard.map(ScopeGuard::into_inner);
 
 	#[cfg(feature = "std")]
 	if let Some(panic) = panic {
@@ -123,6 +124,11 @@ impl<K, V> Linotype<K, V> {
 	}
 
 	/// Turns this [`Linotype`] into a [`Pin`] of its values.
+	///
+	/// Note that a panic in a `K` or `V` [`Drop`] implementation will abort the process via double-panic unless the `"std"` feature is enabled,
+	/// as long as this instance remains pinning.
+	///
+	/// With the `"std"` feature enabled, [`Linotype`] will always continue to clean up as needed, then re-panic the first panic it encountered.
 	///
 	/// # Safety Notes
 	///
@@ -179,13 +185,14 @@ impl<K, V> Linotype<K, V> {
 		I: 'b + IntoIterator<Item = (T, S, F)>,
 		E: 'b,
 	{
-		drop_stale(&mut self.stale, &mut self.dropped);
+		let pinning = self.pinning;
+		drop_stale(&mut self.stale, &mut self.dropped, pinning);
 		mem::swap(&mut self.live, &mut self.stale);
 
-		let mut stale_and_dropped =
-			scopeguard::guard((&mut self.stale, &mut self.dropped), |(stale, dropped)| {
-				drop_stale(stale, dropped)
-			});
+		let mut stale_and_dropped = scopeguard::guard(
+			(&mut self.stale, &mut self.dropped),
+			move |(stale, dropped)| drop_stale(stale, dropped, pinning),
+		);
 		let live = &mut self.live;
 		let values = &self.storage;
 

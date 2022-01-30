@@ -8,16 +8,35 @@ use core::{
 };
 use tap::Pipe;
 
+mod sealed {
+	use crate::Linotype;
+	use core::pin::Pin;
+
+	pub trait Sealed: Sized {}
+	impl<K, V> Sealed for Pin<Linotype<K, V>> {}
+}
+use sealed::Sealed;
+
 /// The value-pinning [`Linotype`] API.
 ///
 /// This can't be associated directly because `self: Pin<Self>` is currently not a valid method receiver.
-pub trait PinningLinotype {
+///
+/// # A note about performance
+///
+/// Due to Rust language limitations (as of v1.58.1), it is currently not possible to give most of the methods in
+/// this trait their proper return types. This means quite a lot of them (at least formally) heap-allocate and use dynamic dispatch.
+///
+/// As a workaround, it is presently legal to reinterpret a [`Pin<Linotype<K, V>>`] as [`Linotype<K, V>`],
+/// and to call methods that exist in both APIs in their [`Linotype<K, V>`] that way as long as you treat their returned value references as pinning.
+pub trait PinningLinotype: Sealed {
 	/// The type of stored keys.
 	type K;
 	/// The type of values.
 	type V;
 
 	/// Converts this instance back into a non-pinning [`Linotype<K, V>`].
+	///
+	/// After calling this, drop implementation panics won't cause a double anymore, even without the `"std"` feature.
 	fn unpin(self) -> Linotype<Self::K, Self::V>
 	where
 		Self::V: Unpin;
@@ -111,7 +130,9 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 	where
 		V: Unpin,
 	{
-		unsafe { mem::transmute(self) }
+		let mut this: Linotype<K, V> = unsafe { mem::transmute(self) };
+		this.pinning = false;
+		this
 	}
 
 	fn get<Q>(&self, key: &Q) -> Option<Pin<&V>>

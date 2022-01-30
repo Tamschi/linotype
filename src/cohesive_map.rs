@@ -6,7 +6,7 @@ use core::iter::FusedIterator;
 ///
 /// It's likely a little slower than the standard library's, due to relying on default implementations more.
 ///
-/// However, it does guarantee not to move its instances of `I` and `F` by itself and also that it won't buffer anything (by itself).
+/// However, [`CohesiveMap`] hereby does guarantee not to move its instances of `I` and `F` by itself and also that it won't buffer anything (by itself).
 /// This makes it suitable for certain cross-closure pointer tricks used elsewhere in this crate to avoid overhead.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 #[derive(Clone)]

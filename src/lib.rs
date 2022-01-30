@@ -8,12 +8,29 @@
 //!
 //! Allows this crate to avoid memory leaks into the internal value storage arena in case of panicking [`Drop`] implementations, but has otherwise no effect.
 //!
-//! > This is legal
+//! > This is legal because pinning only implies an *attempt* to drop a pinned instance before it can be freed¹
+//! > (also since if a [`Drop`] implementation panics, that instance is (in general) considered dropped²).
+//! >
+//! > ¹ [`core::pin`: `Drop` guarantee](`core::pin`#drop-guarantee)  
+//! > ² [`Drop::drop`: Panics](`Drop`#panics)
 //!
 //! # Performance Focus
 //!
 //! This implementation is optimised for relatively small entry counts,
 //! like instances of a GUI component in a mutable list generated from some input sequence.
+//!
+//! # (Current) Caveats
+//!
+//! - [`Linotype`] updates have quadratic time complexity over the number of items.
+//!
+//!   This could largely be mitigated by remembering how many entries in `stale` already have [`None`] instead of a value pointer.
+//!
+//! - Return types are improper.
+//!
+//!   Even if the closure types can't be fully specified right now, it should be possible to expose the compound iterators directly.
+//!   This would give access to the [`DoubleEndedIterator`], [`ExactSizeIterator`] and [`FusedIterator`](`core::iter::FusedIterator`) implementations where appropriate.
+//!
+//!   Moving the dynamic call further inwards would likely also improve [`Pin<Linotype>`](`PinningLinotype`#impl-PinningLinotype-for-Pin<Linotype<K%2C%20V>>)'s performance for at least some operations.
 #![no_std]
 #![doc(html_root_url = "https://docs.rs/linotype/0.0.1")]
 #![warn(clippy::pedantic, missing_docs)]

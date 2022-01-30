@@ -18,6 +18,10 @@ use tap::{Pipe, Tap};
 use typed_arena::Arena;
 
 /// A keyed list reprojector.
+///
+/// This type acts as **stable multi-map** from items in the input sequence (or rather: derived qualifiers of those items) to mutable stored values.
+///
+/// A [`Linotype`] can be converted into a value-pinning version of itself by through its [`.pin(self)`](`Linotype::pin`) method.
 pub struct Linotype<K, V> {
 	live: Index<K, V>,
 	stale: Index<K, V>,
@@ -83,7 +87,29 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 	}
 }
 
-/// This currently uses
+/// # Generics Glossary
+///
+/// - `'a`: Lifetime of the [`Linotype`].
+/// - `'b`: Lifetime of the in-progress update (i.e. the resulting iterator).
+/// - `K`: (Stored) **K**ey.
+/// - `V`: (Stored) **V**alue.
+/// - `T`: (Input) I**t**em.
+/// - `Q: ?Sized`: **Q**uery or **Q**uality, borrowed from `T`.
+/// - `S`: **S**elector, projects `(&mut T) -> &Q`.
+/// - `F`: **F**actory, projects `(&mut T) -> V`.
+/// - `I`: **I**nput **I**terator, with varying [`Iterator::Item`].
+/// - `E`: Arbitrary payload for [`Result::Err`].
+///
+/// The selector will generally run once per item, the factory only to generate one value for each new entry.
+///
+/// The quality must be [`Eq`] to prevent edge cases where values cannot be kept,
+/// and stored keys are derived from the quality using [`ToOwned`] as necessary.
+///
+/// Note that in the resulting `(T, &mut V)` (i.e. just-confirmed item-value entries), the `T` is by value and the `V` is valid for the entirety of `'b`.
+///
+/// # Implementation Notes
+///
+/// This currently uses at least
 ///
 /// ```ignore
 /// K: Borrow<Q>,
@@ -105,6 +131,8 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 /// ```
 ///
 /// because the latter has the compiler ask for lifetime bounds on `Qr`, or a duplicate implementation entirely.
+///
+/// A `Q: 'b` bound is present on most methods, but usually not a problem.
 impl<K, V> Linotype<K, V> {
 	/// Creates a new non-pinning [`Linotype`] instance.
 	///
@@ -136,6 +164,10 @@ impl<K, V> Linotype<K, V> {
 	///
 	/// This means that transmuting a [`Linotype`] to wrap it in a [`Pin`] is normally **not** a sound operation.  
 	/// However, [`Linotype`] itself never relies on this flag in other circumstances.
+	///
+	/// # See also
+	///
+	/// [`PinningLinotype`](`crate::PinningLinotype`), for the pinning API.
 	pub const fn pin(mut self) -> Pin<Self> {
 		self.pinning = true;
 		unsafe { mem::transmute(self) }

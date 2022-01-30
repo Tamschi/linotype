@@ -27,10 +27,18 @@
 //!
 //! - Return types are improper.
 //!
-//!   Even if the closure types can't be fully specified right now, it should be possible to expose the compound iterators directly.
+//!   Even if the closure types can't be fully specified for now, it should be possible to expose the compound iterators directly.
 //!   This would give access to the [`DoubleEndedIterator`], [`ExactSizeIterator`] and [`FusedIterator`](`core::iter::FusedIterator`) implementations where appropriate.
 //!
 //!   Moving the dynamic call further inwards would likely also improve [`Pin<Linotype>`](`PinningLinotype`#impl-PinningLinotype-for-Pin<Linotype<K%2C%20V>>)'s performance for at least some operations.
+//!
+//! - Use-case coverage isn't great.
+//!
+//!   This is mainly due to me right now needing only a (very) limited subset of what this type could in theory support.
+//!
+//!   The most significant omission right now is likely any way to index the collection directly, or to extract entries by value.
+//! 
+//! [Visit the repository](https://github.com/Tamschi/linotype) to file an issue or pull-request.
 #![no_std]
 #![doc(html_root_url = "https://docs.rs/linotype/0.0.1")]
 #![warn(clippy::pedantic, missing_docs)]

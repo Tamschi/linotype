@@ -80,6 +80,28 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 	}
 }
 
+/// This currently uses
+///
+/// ```
+/// K: Borrow<Q>,
+/// T: 'b,
+/// Q: Eq + ToOwned<Owned = K>,
+/// S: 'b + FnOnce(&mut T) -> Result<Qr, E>,
+/// F: 'b + FnOnce(&mut T, ) -> Result<V, E>,
+/// ```
+///
+/// instead of
+///
+///  ```
+/// K: Borrow<Q>,
+/// T: 'b,
+//
+/// Q: Eq + ToOwned<Owned = K>,
+/// S: 'b + FnOnce(&mut T) -> Result<&Q, E>,
+/// F: 'b + FnOnce(&mut T, ) -> Result<V, E>,
+/// ```
+///
+/// because the latter has the compiler ask for lifetime bounds on `Qr`, or a duplicate implementation entirely.
 impl<K, V> Linotype<K, V> {
 	/// Creates a new non-pinning [`Linotype`] instance.
 	///
@@ -142,17 +164,16 @@ impl<K, V> Linotype<K, V> {
 	/// **Lazily** updates this map according to a sequence of item, **fallible** selector and **fallible** factory **triples**.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_try_by_keyed_try_with_keyed<'a: 'b, 'b, T, Qr, S, F, I, E>(
+	pub fn update_try_by_keyed_try_with_keyed<'a: 'b, 'b, T, Q, S, F, I, E>(
 		&'a mut self,
 		items_selectors_factories: I,
 	) -> impl 'b + Iterator<Item = Result<(T, &'a mut V), E>>
 	where
-		K: Borrow<Qr::Target>,
+		K: Borrow<Q>,
 		T: 'b,
-		Qr: Deref,
-		Qr::Target: Eq + ToOwned<Owned = K>,
-		S: 'b + FnOnce(&mut T) -> Result<Qr, E>,
-		F: 'b + FnOnce(&mut T, Qr) -> Result<V, E>,
+		Q: Eq + ToOwned<Owned = K>,
+		S: 'b + FnOnce(&mut T) -> Result<&Q, E>,
+		F: 'b + FnOnce(&mut T) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
 		E: 'b,
 	{
@@ -187,200 +208,132 @@ impl<K, V> Linotype<K, V> {
 							.map(|mut v| unsafe { v.as_mut() })
 							.map(Ok),
 						_ => None,
-					})
-					.unwrap_or_else(|| {
-						let k = key.to_owned();
-						let v = if let Some(mut v) = dropped.pop() {
-							unsafe {
-								v.as_ptr().write(factory(&mut item, key)?);
-								v.as_mut()
-							}
-						} else {
-							values.alloc(factory(&mut item, key)?)
-						};
+					});
 
-						// I'm *pretty* sure this is okay like that:
-						live.push((MaybeUninit::new(k), NonNull::new(v)));
-						Ok(v)
-					})?;
-				Ok((item, v))
+				if let Some(v) = v {
+					v.map(|v| (item, v))
+				} else {
+					let k = key.to_owned();
+					let v = if let Some(mut v) = dropped.pop() {
+						unsafe {
+							v.as_ptr().write(factory(&mut item)?);
+							v.as_mut()
+						}
+					} else {
+						values.alloc(factory(&mut item)?)
+					};
+
+					// I'm *pretty* sure this is okay like that:
+					live.push((MaybeUninit::new(k), NonNull::new(v)));
+					Ok((item, v))
+				}
 			})
 	}
 
-	// The compiler seems to require a `Qr; 'b` constraint here, which would make this not work with my use case.
-	// I'm keeping this, commented out, because it's not trivial and would be a nicer solution.
-	//
-	// /// **Lazily** updates this map according to a sequence of items and a **fallible** selector and **fallible** factory.
-	// ///
-	// /// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	// pub fn update_try_by_try_with<'a: 'b, 'b, T, Qr, S, F, I, E>(
-	// 	&'a mut self,
-	// 	items: I,
-	// 	selector: S,
-	// 	factory: F,
-	// ) -> impl 'b + Iterator<Item = Result<(T, &'a mut V), E>>
-	// where
-	// 	K: Borrow<Qr::Target>,
-	// 	T: 'b,
-	// 	Qr: Deref,
-	// 	Qr::Target: Eq + ToOwned<Owned = K>,
-	// 	S: 'b + FnMut(&mut T) -> Result<Qr, E>,
-	// 	F: 'b + FnMut(&mut T, Qr) -> Result<V, E>,
-	// 	I: 'b + IntoIterator<Item = T>,
-	// 	E: 'b,
-	// {
-	// 	//FIXME: See <https://github.com/rust-lang/rust/issues/70263>.
-	// 	// Workaround from <https://users.rust-lang.org/t/inferred-closure-type-is-not-general-enough/61042>.
-
-	// 	fn infer_1<T, R, F: FnOnce(&mut T) -> R>(f: F) -> F { f }
-	// 	fn infer_2<T, U, R, F: FnOnce(&mut T, U) -> R>(f: F) -> F { f }
-
-	// 	self.update_try_by_keyed_try_with_keyed(items.into_iter().map(move |item| {
-	// 		let selector = NonNull::from(&mut selector);
-	// 		let factory = NonNull::from(&mut factory);
-	// 		(
-	// 			item,
-	// 			//SAFETY:
-	// 			// We know (due to `update_try_by_keyed_try_with_keyed`) that during each result iterator step,
-	// 			// the pointers above will be taken and the functions called without any opportunity for the iterator
-	// 			// to move, which means this outer closure here won't move during that time,
-	// 			// keeping selector and factory in place.
-	// 			//
-	// 			//BUG: Iterator::map is probably implement this way, but the specification doesn't actually
-	// 			// guarantee it I think, and which implementation we use may actually differ here… which
-	// 			// means I'll have to use a custom Map implementation that I *know* won't shift the closure around internally,
-	// 			// and in `update_try_by_keyed_try_with_keyed` I'll have to use one I know won't shift the iterator before calling the closure.
-	// 			infer_1(move |item| unsafe { selector.as_mut() }(item)),
-	// 			infer_2(move |item, key| unsafe { factory.as_mut() }(item, key)),
-	// 		)
-	// 	}))
-	// }
-
-	/// **Lazily** updates this map according to a sequence of item, **fallible** selector and **fallible** factory **triples**.
+	/// **Lazily** updates this map according to a sequence of items and a **fallible** selector and **fallible** factory.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_try_by_try_with<'a: 'b, 'b, T, Qr, S, F, I, E>(
+	pub fn update_try_by_try_with<'a: 'b, 'b, T, Q, S, F, I, E>(
 		&'a mut self,
 		items: I,
 		mut selector: S,
 		mut factory: F,
 	) -> impl 'b + Iterator<Item = Result<(T, &'a mut V), E>>
 	where
-		K: Borrow<Qr::Target>,
+		K: Borrow<Q>,
 		T: 'b,
-		Qr: Deref,
-		Qr::Target: Eq + ToOwned<Owned = K>,
-		S: 'b + FnMut(&mut T) -> Result<Qr, E>,
-		F: 'b + FnMut(&mut T, Qr) -> Result<V, E>,
+		Q: 'b + Eq + ToOwned<Owned = K>,
+		S: 'b + FnMut(&mut T) -> Result<&Q, E>,
+		F: 'b + FnMut(&mut T) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = T>,
 		E: 'b,
 	{
-		drop_stale(&mut self.stale, &mut self.dropped);
-		mem::swap(&mut self.live, &mut self.stale);
+		//FIXME: See <https://github.com/rust-lang/rust/issues/70263>.
+		// Workaround from <https://users.rust-lang.org/t/inferred-closure-type-is-not-general-enough/61042>.
+		fn infer<T, R, E, F: FnMut(&mut T) -> Result<&R, E>>(f: F) -> F {
+			f
+		}
 
-		let mut stale_and_dropped =
-			scopeguard::guard((&mut self.stale, &mut self.dropped), |(stale, dropped)| {
-				drop_stale(stale, dropped)
-			});
-		let live = &mut self.live;
-		let values = &self.storage;
-
-		items.into_iter().map(move |mut item| {
-			// Double-references 😬
-			// Well, the compiler should be able to figure this out.
-			let (stale, dropped) = &mut *stale_and_dropped;
-			let key = selector(&mut item)?;
-			let v = stale
-					.iter_mut()
-					//BUG:
-					// This must search in the same direction as the outer iterator is iterated,
-					// but [`iter::Map`] is potentially bidirectional!
-					.find_map(|(k, v)| match v {
-						Some(_) if &*key == unsafe { k.assume_init_ref() }.borrow() => v
-							.take()
-							.tap(|v| {
-								live.push((MaybeUninit::new(unsafe { k.as_ptr().read() }), *v))
-							})
-							.map(|mut v| unsafe { v.as_mut() })
-							.map(Ok),
-						_ => None,
-					})
-					.unwrap_or_else(|| {
-						let k = key.to_owned();
-						let v = if let Some(mut v) = dropped.pop() {
-							unsafe {
-								v.as_ptr().write(factory(&mut item, key)?);
-								v.as_mut()
-							}
-						} else {
-							values.alloc(factory(&mut item, key)?)
-						};
-
-						// I'm *pretty* sure this is okay like that:
-						live.push((MaybeUninit::new(k), NonNull::new(v)));
-						Ok(v)
-					})?;
-			Ok((item, v))
-		})
+		self.update_try_by_keyed_try_with_keyed(items.into_iter().map(move |item| {
+			let mut selector = NonNull::from(&mut selector);
+			let mut factory = NonNull::from(&mut factory);
+			(
+				item,
+				//SAFETY:
+				// We know (due to `update_try_by_keyed_try_with_keyed`) that during each result iterator step,
+				// the pointers above will be taken and the functions called without any opportunity for the iterator
+				// to move, which means this outer closure here won't move during that time,
+				// keeping selector and factory in place.
+				//
+				//BUG: Iterator::map is probably implement this way, but the specification doesn't actually
+				// guarantee it I think, and which implementation we use may actually differ here… which
+				// means I'll have to use a custom Map implementation that I *know* won't shift the closure around internally,
+				// and in `update_try_by_keyed_try_with_keyed` I'll have to use one I know won't shift the iterator before calling the closure.
+				infer(move |item| unsafe { selector.as_mut() }(item)),
+				move |item: &mut T| unsafe { factory.as_mut() }(item)?.pipe(Ok),
+			)
+		}))
 	}
 
 	/// **Lazily** updates this map according to a sequence of key and **infallible** factory **pairs**.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_by_keyed_with_keyed<'a: 'b, 'b, T, Qr, S, F, I>(
+	pub fn update_by_keyed_with_keyed<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items_selectors_factories: I,
 	) -> impl 'b + Iterator<Item = (T, &'a mut V)>
 	where
-		K: Borrow<Qr::Target>,
+		K: Borrow<Q>,
 		T: 'b,
-		Qr: Deref,
-		Qr::Target: Eq + ToOwned<Owned = K>,
-		S: 'b + FnOnce(&mut T) -> Qr,
-		F: 'b + FnOnce(&mut T, Qr) -> V,
+		Q: 'b + Eq + ToOwned<Owned = K>,
+		S: 'b + FnOnce(&mut T) -> &Q,
+		F: 'b + FnOnce(&mut T) -> V,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
 	{
+		//FIXME: See <https://github.com/rust-lang/rust/issues/70263>.
+		// Workaround from <https://users.rust-lang.org/t/inferred-closure-type-is-not-general-enough/61042>.
+		fn infer<T, R, E, F: FnOnce(&mut T) -> Result<&R, E>>(f: F) -> F {
+			f
+		}
+
 		let items_selectors_factories =
 			items_selectors_factories
 				.into_iter()
 				.map(|(key, selector, factory)| {
-					(
-						key,
-						|item: &mut T| Ok(selector(item)),
-						|item: &mut T, key| Ok(factory(item, key)),
-					)
+					(key, infer(|item| Ok(selector(item))), |item: &mut T| {
+						Ok(factory(item))
+					})
 				});
 		self.update_try_by_keyed_try_with_keyed(items_selectors_factories)
 			.map(unwrap_infallible)
 	}
 
-	/// **Lazily** updates this map according to a sequence of keys and an **infallible** factory.
+	/// **Lazily** updates this map according to a sequence of keys, and **infallible** selector and an **infallible** factory.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_by_with<'a: 'b, 'b, T, Qr, S, F, I>(
+	pub fn update_by_with<'a: 'b, 'b, T, Q: 'b, S, F, I>(
 		&'a mut self,
 		items: I,
 		mut selector: S,
 		mut factory: F,
 	) -> impl 'b + Iterator<Item = (T, &'a mut V)>
 	where
-		K: Borrow<Qr::Target>,
+		K: Borrow<Q>,
 		T: 'b,
-		Qr: Deref,
-		Qr::Target: Eq + ToOwned<Owned = K>,
-		S: 'b + FnOnce(&mut T) -> Qr,
-		F: 'b + FnOnce(&mut T, Qr) -> V,
+		Q: Eq + ToOwned<Owned = K>,
+		S: 'b + FnMut(&mut T) -> &Q,
+		F: 'b + FnMut(&mut T) -> V,
 		I: 'b + IntoIterator<Item = T>,
 	{
 		self.update_try_by_try_with(
 			items,
-			|item| Ok(selector(item)),
-			|item, key| Ok(factory(item, key)),
+			move |item| Ok(selector(item)),
+			move |item| Ok(factory(item)),
 		)
 		.map(unwrap_infallible)
 	}
 }
 
-const fn unwrap_infallible<T>(infallible: Result<T, Infallible>) -> T {
+fn unwrap_infallible<T>(infallible: Result<T, Infallible>) -> T {
 	infallible.unwrap()
 }

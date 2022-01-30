@@ -1,18 +1,15 @@
-use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
+use alloc::{borrow::ToOwned, vec::Vec};
 use core::{
 	borrow::Borrow,
-	cell::RefCell,
 	convert::Infallible,
 	iter,
 	mem::{self, MaybeUninit},
-	ops::Deref,
 	pin::Pin,
 	ptr::{drop_in_place, NonNull},
 };
 use scopeguard::ScopeGuard;
 use tap::{Pipe, Tap};
 use typed_arena::Arena;
-
 use crate::Index;
 
 /// A keyed list reprojector.

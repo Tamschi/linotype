@@ -1,18 +1,13 @@
 use crate::Linotype;
-use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
+use alloc::{borrow::ToOwned, boxed::Box};
 use core::{
 	borrow::Borrow,
-	cell::RefCell,
-	convert::Infallible,
-	iter,
-	mem::{self, MaybeUninit},
+	mem::{self},
 	ops::Deref,
 	pin::Pin,
-	ptr::{drop_in_place, NonNull},
 };
-use scopeguard::ScopeGuard;
-use tap::{Pipe, Tap};
-use typed_arena::Arena;
+use tap::{Pipe};
+
 
 /// The value-pinning [`Linotype`] API.
 ///

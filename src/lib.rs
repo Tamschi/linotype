@@ -34,14 +34,8 @@ mod pinning_linotype;
 pub use self::linotype::Linotype;
 pub use pinning_linotype::PinningLinotype;
 
-use alloc::{vec::Vec};
-use core::{
-	mem::{MaybeUninit},
-	ptr::{NonNull},
-};
-
-
-
+use alloc::vec::Vec;
+use core::{mem::MaybeUninit, ptr::NonNull};
 
 /// [`Some`]-ness of [`Index::1`] indicates initialisation status of [`Index::0`].
 type Index<K, V> = Vec<(MaybeUninit<K>, Option<NonNull<V>>)>;

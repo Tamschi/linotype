@@ -1,3 +1,4 @@
+use crate::Index;
 use alloc::{borrow::ToOwned, vec::Vec};
 use core::{
 	borrow::Borrow,
@@ -10,7 +11,6 @@ use core::{
 use scopeguard::ScopeGuard;
 use tap::{Pipe, Tap};
 use typed_arena::Arena;
-use crate::Index;
 
 /// A keyed list reprojector.
 pub struct Linotype<K, V> {

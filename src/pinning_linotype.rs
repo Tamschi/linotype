@@ -6,8 +6,7 @@ use core::{
 	ops::Deref,
 	pin::Pin,
 };
-use tap::{Pipe};
-
+use tap::Pipe;
 
 /// The value-pinning [`Linotype`] API.
 ///

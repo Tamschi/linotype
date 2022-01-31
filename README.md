@@ -63,8 +63,8 @@ let mut factory = move |_item: &mut _, _k: &_| {
 };
 
 // Inferred to store `String` keys (`K`) and `{integer}` values (`V`).
-let mut linotype = OwnedProjection::new();
-let mut reproject = |iter: &[&'static str]| linotype
+let mut state_map = OwnedProjection::new();
+let mut reproject = |iter: &[&'static str]| state_map
   .reproject_by_with(
     iter.into_iter().copied(), // : IntoIter<Item = T>, here: T = &'static str
     selector,                 // : FnMut(&mut T) -> &Q,

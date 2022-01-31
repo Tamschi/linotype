@@ -71,7 +71,7 @@ let mut reproject = |iter: &[&'static str]| linotype
     &mut factory,            // : FnMut(&mut T, &K) -> V,
   )
   .map(|(_item, value)| *value)
-  .collect::<Vec<_>>();  // Left-over values are dropped here. Their slots are recycled.
+  .collect::<Vec<_>>();   // Left-over values are dropped here. Their slots are recycled.
 
 assert_eq!(reproject(&["a", "b", "c"]), vec![0, 1, 2]);
 assert_eq!(reproject(&["a", "b", "c", "d"]), vec![0, 1, 2, 3]);

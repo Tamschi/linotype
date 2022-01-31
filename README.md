@@ -41,7 +41,7 @@ fn selector<'a>(item: &'a mut &'static str) -> &'a str {
 }
 
 let mut counter = (0..).into_iter();
-let mut factory = move |_item: &mut _| {
+let mut factory = move |_item: &mut _, _k: &_| {
   counter.next().unwrap()
 };
 
@@ -51,7 +51,7 @@ let mut update = |iter: &[&'static str]| linotype
   .update_by_with(
     iter.into_iter().copied(), // : IntoIter<Item = T>, here: T = &'static str
     selector,                 // : FnMut(&mut T) -> &Q,
-    &mut factory,            // : FnMut(&mut T) -> V,
+    &mut factory,            // : FnMut(&mut T, &K) -> V,
   )
   .map(|(_item, value)| *value)
   .collect::<Vec<_>>();  // Left-over values are dropped here. Their slots are recycled.

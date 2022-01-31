@@ -66,7 +66,7 @@ pub trait PinningLinotype: Sealed {
 		T: 'b,
 		Q: 'b + ?Sized + Eq + ToOwned<Owned = Self::K>,
 		S: 'b + FnOnce(&mut T) -> Result<&Q, E>,
-		F: 'b + FnOnce(&mut T) -> Result<Self::V, E>,
+		F: 'b + FnOnce(&mut T, &Self::K) -> Result<Self::V, E>,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
 		E: 'b;
 
@@ -85,7 +85,7 @@ pub trait PinningLinotype: Sealed {
 		T: 'b,
 		Q: 'b + ?Sized + Eq + ToOwned<Owned = Self::K>,
 		S: 'b + FnMut(&mut T) -> Result<&Q, E>,
-		F: 'b + FnMut(&mut T) -> Result<Self::V, E>,
+		F: 'b + FnMut(&mut T, &Self::K) -> Result<Self::V, E>,
 		I: 'b + IntoIterator<Item = T>,
 		E: 'b;
 
@@ -101,7 +101,7 @@ pub trait PinningLinotype: Sealed {
 		T: 'b,
 		Q: 'b + ?Sized + Eq + ToOwned<Owned = Self::K>,
 		S: 'b + FnOnce(&mut T) -> &Q,
-		F: 'b + FnOnce(&mut T) -> Self::V,
+		F: 'b + FnOnce(&mut T, &Self::K) -> Self::V,
 		I: 'b + IntoIterator<Item = (T, S, F)>;
 
 	/// **Lazily** updates this map according to a sequence of items, a selector and a factory.
@@ -118,7 +118,7 @@ pub trait PinningLinotype: Sealed {
 		T: 'b,
 		Q: 'b + ?Sized + Eq + ToOwned<Owned = Self::K>,
 		S: 'b + FnMut(&mut T) -> &Q,
-		F: 'b + FnMut(&mut T) -> Self::V,
+		F: 'b + FnMut(&mut T, &Self::K) -> Self::V,
 		I: 'b + IntoIterator<Item = T>;
 }
 impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
@@ -161,7 +161,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		T: 'b,
 		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnOnce(&mut T) -> Result<&Q, E>,
-		F: 'b + FnOnce(&mut T) -> Result<V, E>,
+		F: 'b + FnOnce(&mut T, &K) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
 		E: 'b,
 	{
@@ -183,7 +183,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		T: 'b,
 		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnMut(&mut T) -> Result<&Q, E>,
-		F: 'b + FnMut(&mut T) -> Result<V, E>,
+		F: 'b + FnMut(&mut T, &K) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = T>,
 		E: 'b,
 	{
@@ -202,7 +202,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		T: 'b,
 		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnOnce(&mut T) -> &Q,
-		F: 'b + FnOnce(&mut T) -> V,
+		F: 'b + FnOnce(&mut T, &K) -> V,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
 	{
 		self.as_non_pin_mut()
@@ -222,7 +222,7 @@ impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
 		T: 'b,
 		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnMut(&mut T) -> &Q,
-		F: 'b + FnMut(&mut T) -> V,
+		F: 'b + FnMut(&mut T, &K) -> V,
 		I: 'b + IntoIterator<Item = T>,
 	{
 		self.as_non_pin_mut()

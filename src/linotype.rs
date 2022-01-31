@@ -21,7 +21,10 @@ use typed_arena::Arena;
 ///
 /// This type acts as **stable multi-map** from items in the input sequence (or rather: derived qualifiers of those items) to mutable stored values.
 ///
-/// A [`Linotype`] can be converted into a value-pinning version of itself by through its [`.pin(self)`](`Linotype::pin`) method.
+/// **Values persist across updates**, as long as the necessary items appear in each sequence to warrant it.
+///
+/// A [`Linotype`] can be converted into a value-pinning version of itself by through its [`.pin(self)`](`Linotype::pin`) method.  
+/// This pinning variant is still mutable, but won't release stored values by value, always dropping them in place instead.
 pub struct Linotype<K, V> {
 	live: Index<K, V>,
 	stale: Index<K, V>,
@@ -96,7 +99,7 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 /// - `T`: (Input) I**t**em.
 /// - `Q: ?Sized`: **Q**uery or **Q**uality, borrowed from `T`.
 /// - `S`: **S**elector, projects `(&mut T) -> &Q`.
-/// - `F`: **F**actory, projects `(&mut T) -> V`.
+/// - `F`: **F**actory, projects `(&mut T, &K) -> V`.
 /// - `I`: **I**nput **I**terator, with varying [`Iterator::Item`].
 /// - `E`: Arbitrary payload for [`Result::Err`].
 ///
@@ -116,7 +119,7 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 /// T: 'b,
 /// Q: ?Sized + Eq + ToOwned<Owned = K>,
 /// S: 'b + FnOnce(&mut T) -> Result<Qr, E>,
-/// F: 'b + FnOnce(&mut T) -> Result<V, E>,
+/// F: 'b + FnOnce(&mut T, &K) -> Result<V, E>,
 /// ```
 ///
 /// instead of
@@ -127,7 +130,7 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 /// Qr: Deref,
 /// Qr::Target: ?Sized + Eq + ToOwned<Owned = K>,
 /// S: 'b + FnOnce(&mut T) -> Result<Qr, E>,
-/// F: 'b + FnOnce(&mut T) -> Result<V, E>,
+/// F: 'b + FnOnce(&mut T, &K) -> Result<V, E>,
 /// ```
 ///
 /// because the latter has the compiler ask for lifetime bounds on `Qr`, or a duplicate implementation entirely.
@@ -213,7 +216,7 @@ impl<K, V> Linotype<K, V> {
 		T: 'b,
 		Q: ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnOnce(&mut T) -> Result<&Q, E>,
-		F: 'b + FnOnce(&mut T) -> Result<V, E>,
+		F: 'b + FnOnce(&mut T, &K) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
 		E: 'b,
 	{
@@ -254,11 +257,11 @@ impl<K, V> Linotype<K, V> {
 					let k = key.to_owned();
 					let v = if let Some(mut v) = dropped.pop() {
 						unsafe {
-							v.as_ptr().write(factory(&mut item)?);
+							v.as_ptr().write(factory(&mut item, &k)?);
 							v.as_mut()
 						}
 					} else {
-						values.alloc(factory(&mut item)?)
+						values.alloc(factory(&mut item, &k)?)
 					};
 
 					// I'm *pretty* sure this is okay like that:
@@ -283,7 +286,7 @@ impl<K, V> Linotype<K, V> {
 		T: 'b,
 		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnMut(&mut T) -> Result<&Q, E>,
-		F: 'b + FnMut(&mut T) -> Result<V, E>,
+		F: 'b + FnMut(&mut T, &K) -> Result<V, E>,
 		I: 'b + IntoIterator<Item = T>,
 		E: 'b,
 	{
@@ -303,7 +306,7 @@ impl<K, V> Linotype<K, V> {
 						(unsafe { selector.as_mut() })(item)
 					}
 				},
-				move |item: &mut T| unsafe { factory.as_mut() }(item)?.pipe(Ok),
+				move |item: &mut T, k: &K| unsafe { factory.as_mut() }(item, k)?.pipe(Ok),
 			)
 		}))
 	}
@@ -320,7 +323,7 @@ impl<K, V> Linotype<K, V> {
 		T: 'b,
 		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnOnce(&mut T) -> &Q,
-		F: 'b + FnOnce(&mut T) -> V,
+		F: 'b + FnOnce(&mut T, &K) -> V,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
 	{
 		self.update_try_by_keyed_try_with_keyed(items_selectors_factories.into_iter().map(
@@ -333,7 +336,7 @@ impl<K, V> Linotype<K, V> {
 							Ok(selector(item))
 						}
 					},
-					|item: &mut T| Ok(factory(item)),
+					|item: &mut T, k: &K| Ok(factory(item, k)),
 				)
 			},
 		))
@@ -354,13 +357,13 @@ impl<K, V> Linotype<K, V> {
 		T: 'b,
 		Q: 'b + ?Sized + Eq + ToOwned<Owned = K>,
 		S: 'b + FnMut(&mut T) -> &Q,
-		F: 'b + FnMut(&mut T) -> V,
+		F: 'b + FnMut(&mut T, &K) -> V,
 		I: 'b + IntoIterator<Item = T>,
 	{
 		self.update_try_by_try_with(
 			items,
 			move |item| Ok(selector(item)),
-			move |item| Ok(factory(item)),
+			move |item, k| Ok(factory(item, k)),
 		)
 		.map(unwrap_infallible)
 	}

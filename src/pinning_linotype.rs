@@ -1,4 +1,4 @@
-use crate::Linotype;
+use crate::OwnedProjection;
 use alloc::{borrow::ToOwned, boxed::Box};
 use core::{
 	borrow::Borrow,
@@ -9,15 +9,15 @@ use core::{
 use tap::Pipe;
 
 mod sealed {
-	use crate::Linotype;
+	use crate::OwnedProjection;
 	use core::pin::Pin;
 
 	pub trait Sealed: Sized {}
-	impl<K, V> Sealed for Pin<Linotype<K, V>> {}
+	impl<K, V> Sealed for Pin<OwnedProjection<K, V>> {}
 }
 use sealed::Sealed;
 
-/// The value-pinning [`Linotype`] API.
+/// The value-pinning [`OwnedProjection`] API.
 ///
 /// This can't be associated directly because `self: Pin<Self>` is currently not a valid method receiver.
 ///
@@ -26,18 +26,18 @@ use sealed::Sealed;
 /// Due to Rust language limitations (as of v1.58.1), it is currently not possible to give most of the methods in
 /// this trait their proper return types. This means quite a lot of them (at least formally) heap-allocate and use dynamic dispatch.
 ///
-/// As a workaround, it is presently legal to reinterpret a [`Pin<Linotype<K, V>>`] as [`Linotype<K, V>`],
-/// and to call methods that exist in both APIs in their [`Linotype<K, V>`] that way as long as you treat their returned value references as pinning.
-pub trait PinningLinotype: Sealed {
+/// As a workaround, it is presently legal to reinterpret a [`Pin<OwnedProjection<K, V>>`] as [`OwnedProjection<K, V>`],
+/// and to call methods that exist in both APIs in their [`OwnedProjection<K, V>`] that way as long as you treat their returned value references as pinning.
+pub trait PinningOwnedProjection: Sealed {
 	/// The type of stored keys.
 	type K;
 	/// The type of values.
 	type V;
 
-	/// Converts this instance back into a non-pinning [`Linotype<K, V>`].
+	/// Converts this instance back into a non-pinning [`OwnedProjection<K, V>`].
 	///
 	/// After calling this, drop implementation panics won't cause a double anymore, even without the `"std"` feature.
-	fn unpin(self) -> Linotype<Self::K, Self::V>
+	fn unpin(self) -> OwnedProjection<Self::K, Self::V>
 	where
 		Self::V: Unpin;
 
@@ -121,16 +121,16 @@ pub trait PinningLinotype: Sealed {
 		F: 'b + FnMut(&mut T, &Self::K) -> Self::V,
 		I: 'b + IntoIterator<Item = T>;
 }
-impl<K, V> PinningLinotype for Pin<Linotype<K, V>> {
+impl<K, V> PinningOwnedProjection for Pin<OwnedProjection<K, V>> {
 	type K = K;
 
 	type V = V;
 
-	fn unpin(self) -> Linotype<K, V>
+	fn unpin(self) -> OwnedProjection<K, V>
 	where
 		V: Unpin,
 	{
-		let mut this: Linotype<K, V> = unsafe { mem::transmute(self) };
+		let mut this: OwnedProjection<K, V> = unsafe { mem::transmute(self) };
 		this.pinning = false;
 		this
 	}
@@ -244,16 +244,16 @@ unsafe trait PinHelper {
 
 /// # Safety Notes
 ///
-/// All methods on [`Linotype`] that are callable through the pinning API act as if the values were always pinned.
-unsafe impl<K, V> PinHelper for Pin<Linotype<K, V>> {
-	type T = Linotype<K, V>;
+/// All methods on [`OwnedProjection`] that are callable through the pinning API act as if the values were always pinned.
+unsafe impl<K, V> PinHelper for Pin<OwnedProjection<K, V>> {
+	type T = OwnedProjection<K, V>;
 
 	fn as_non_pin(&self) -> &Self::T {
-		unsafe { &*(self as *const Pin<Linotype<K, V>>).cast::<Linotype<K, V>>() }
+		unsafe { &*(self as *const Pin<OwnedProjection<K, V>>).cast::<OwnedProjection<K, V>>() }
 	}
 
 	fn as_non_pin_mut(&mut self) -> &mut Self::T {
-		unsafe { &mut *(self as *mut Pin<Linotype<K, V>>).cast::<Linotype<K, V>>() }
+		unsafe { &mut *(self as *mut Pin<OwnedProjection<K, V>>).cast::<OwnedProjection<K, V>>() }
 	}
 }
 

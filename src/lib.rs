@@ -21,7 +21,7 @@
 //!
 //! # (Current) Caveats
 //!
-//! - [`Linotype`] updates have quadratic time complexity over the number of items.
+//! - [`OwnedProjection`] updates have quadratic time complexity over the number of items.
 //!
 //!   This could largely be mitigated by remembering how many entries in `stale` already have [`None`] instead of a value pointer, counting from each end.
 //!
@@ -30,7 +30,7 @@
 //!   Even if the closure types can't be fully specified for now, it should be possible to expose the compound iterators directly.
 //!   This would give access to the [`DoubleEndedIterator`], [`ExactSizeIterator`] and [`FusedIterator`](`core::iter::FusedIterator`) implementations where appropriate.
 //!
-//!   Moving the dynamic call further inwards would likely also improve [`Pin<Linotype>`](`PinningLinotype`#impl-PinningLinotype-for-Pin<Linotype<K%2C%20V>>)'s performance for at least some operations.
+//!   Moving the dynamic call further inwards would likely also improve [`Pin<OwnedProjection>`](`PinningOwnedProjection`#impl-PinningOwnedProjection-for-Pin<OwnedProjection<K%2C%20V>>)'s performance for at least some operations.
 //!
 //! - Use-case coverage isn't great.
 //!
@@ -58,8 +58,8 @@ mod linotype;
 mod pinning_linotype;
 pub mod shunting_map;
 
-pub use self::linotype::Linotype;
-pub use pinning_linotype::PinningLinotype;
+pub use self::linotype::OwnedProjection;
+pub use pinning_linotype::PinningOwnedProjection;
 
 use alloc::vec::Vec;
 use core::{mem::MaybeUninit, ptr::NonNull};

@@ -17,30 +17,30 @@ use scopeguard::ScopeGuard;
 use tap::{Pipe, Tap};
 use typed_arena::Arena;
 
-/// A keyed list reprojector.
+/// A lingering projection/keyed sequence reprojector.
 ///
-/// This type acts as **stable multi-map** from items in the input sequence (or rather: derived qualifiers of those items) to mutable stored values.
+/// This type acts as **stable multi-map** from items in the input sequence (or rather: derived stored keys) to mutable stored values.
 ///
-/// **Values persist across updates**, as long as the necessary items appear in each sequence to warrant it.
+/// **Stored keys and values persist across updates**, as long as the necessary items appear in each sequence to warrant it.
 ///
-/// A [`Linotype`] can be converted into a value-pinning version of itself by through its [`.pin(self)`](`Linotype::pin`) method.  
+/// An [`OwnedProjection`] can be converted into a value-pinning version of itself by through its [`.pin(self)`](`OwnedProjection::pin`) method.  
 /// This pinning variant is still mutable, but won't release stored values by value, always dropping them in place instead.
-pub struct Linotype<K, V> {
+pub struct OwnedProjection<K, V> {
 	live: Index<K, V>,
 	stale: Index<K, V>,
 	storage: Arena<V>,
 	dropped: Vec<NonNull<V>>,
-	/// Used by [`PinningLinotype::unpin`](`crate::PinningLinotype::unpin`).
+	/// Used by [`PinningOwnedProjection::unpin`](`crate::PinningOwnedProjection::unpin`).
 	pub(crate) pinning: bool,
 }
 
-impl<K, V> Default for Linotype<K, V> {
+impl<K, V> Default for OwnedProjection<K, V> {
 	fn default() -> Self {
 		Self::new()
 	}
 }
 
-impl<K, V> Drop for Linotype<K, V> {
+impl<K, V> Drop for OwnedProjection<K, V> {
 	fn drop(&mut self) {
 		// It's a bit roundabout, but nicely takes care of the panic-handling.
 
@@ -58,7 +58,7 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 	let mut panic = None;
 
 	let guard = pinning.then(|| scopeguard::guard((), |()| {
-		panic!("`Pin<Linotype>`: A key or value drop implementation panicked. The `drop`-guarantee cannot be upheld without the `\"std\"` feature.")
+		panic!("`Pin<OwnedProjection>`: A key or value drop implementation panicked. The `drop`-guarantee cannot be upheld without the `\"std\"` feature.")
 	}));
 
 	for (k, v) in stale.drain(..) {
@@ -92,7 +92,7 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 
 /// # Generics Glossary
 ///
-/// - `'a`: Lifetime of the [`Linotype`].
+/// - `'a`: Lifetime of the [`OwnedProjection`].
 /// - `'b`: Lifetime of the in-progress update (i.e. the resulting iterator).
 /// - `K`: (Stored) **K**ey.
 /// - `V`: (Stored) **V**alue.
@@ -136,8 +136,8 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 /// because the latter has the compiler ask for lifetime bounds on `Qr`, or a duplicate implementation entirely.
 ///
 /// A `Q: 'b` bound is present on most methods, but usually not a problem.
-impl<K, V> Linotype<K, V> {
-	/// Creates a new non-pinning [`Linotype`] instance.
+impl<K, V> OwnedProjection<K, V> {
+	/// Creates a new non-pinning [`OwnedProjection`] instance.
 	///
 	/// > TODO:
 	/// >
@@ -154,23 +154,23 @@ impl<K, V> Linotype<K, V> {
 		}
 	}
 
-	/// Turns this [`Linotype`] into a [`Pin`] of its values.
+	/// Turns this [`OwnedProjection`] into a [`Pin`] of its values.
 	///
 	/// Note that a panic in a `K` or `V` [`Drop`] implementation will abort the process via double-panic unless the `"std"` feature is enabled,
 	/// as long as this instance remains pinning.
 	///
-	/// With the `"std"` feature enabled, [`Linotype`] will always continue to clean up as needed, then re-panic the first panic it encountered.
+	/// With the `"std"` feature enabled, [`OwnedProjection`] will always continue to clean up as needed, then re-panic the first panic it encountered.
 	///
 	/// # Safety Notes
 	///
 	/// Note that this sets a flag to abort on panics from key and value [`Drop`] implementations iff the `"std"` feature is not active.
 	///
-	/// This means that transmuting a [`Linotype`] to wrap it in a [`Pin`] is normally **not** a sound operation.  
-	/// However, [`Linotype`] itself never relies on this flag in other circumstances.
+	/// This means that transmuting an [`OwnedProjection`] to wrap it in a [`Pin`] is normally **not** a sound operation.  
+	/// However, [`OwnedProjection`] itself never relies on this flag in other circumstances.
 	///
 	/// # See also
 	///
-	/// [`PinningLinotype`](`crate::PinningLinotype`), for the pinning API.
+	/// [`PinningOwnedProjection`](`crate::PinningOwnedProjection`), for the pinning API.
 	pub const fn pin(mut self) -> Pin<Self> {
 		self.pinning = true;
 		unsafe { mem::transmute(self) }

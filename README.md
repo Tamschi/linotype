@@ -32,7 +32,7 @@ cargo add linotype
 ## Example
 
 ```rust
-use linotype::Linotype;
+use linotype::OwnedProjection;
 
 // This is tricky to write as closure except directly as parameter.
 // See the `higher-order-closure` in the dependencies for a workaround.
@@ -46,7 +46,7 @@ let mut factory = move |_item: &mut _, _k: &_| {
 };
 
 // Inferred to store `String` keys (`K`) and `{integer}` values (`V`).
-let mut linotype = Linotype::new();
+let mut linotype = OwnedProjection::new();
 let mut update = |iter: &[&'static str]| linotype
   .update_by_with(
     iter.into_iter().copied(), // : IntoIter<Item = T>, here: T = &'static str

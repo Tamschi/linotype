@@ -26,8 +26,16 @@ As such, it is optimised for flexible use (requiring only [`Eq`](https://doc.rus
 Please use [cargo-edit](https://crates.io/crates/cargo-edit) to always add the latest version of this library:
 
 ```cmd
-cargo add linotype
+cargo add linotype --features std
 ```
+
+## Features
+
+(See [documentation](https://docs.rs/linotype/0.0.1/#features) for more details.)
+
+### `"std"`
+
+Avoids aborting the process if the drop implementation of a key or value inside a pinning [`OwnedProjection`] panics.
 
 ## Example
 

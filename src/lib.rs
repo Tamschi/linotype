@@ -6,13 +6,27 @@
 //!
 //! ## `"std"`
 //!
-//! Allows this crate to avoid memory leaks into the internal value storage arena in case of panicking [`Drop`] implementations, but has otherwise no effect.
+//! Avoids aborting the process if the drop implementation of a key or value inside a pinning [`OwnedProjection`] panics.
+//!
+//! This is not a default feature, but it's recommended to enable it while your crate isn't `no_std` anyway, even in libraries.  
+//! (However, not that enabling or disabling the `"std"` feature in this dependency is a subtle but breaking behaviour change for libraries,
+//! even if they don't expose that behaviour directly, due to it potentially affecting whether such panics can be handled elsewhere.)
 //!
 //! > This is legal because pinning only implies an *attempt* to drop a pinned instance before it can be freed¹
 //! > (also since if a [`Drop`] implementation panics, that instance is (in general) considered dropped²).
 //! >
+//! > However, [`catch_unwind`](https://doc.rust-lang.org/stable/std/panic/fn.catch_unwind.html) is only available in [`std`](https://doc.rust-lang.org/stable/std/).
+//! >
 //! > ¹ [`core::pin`: `Drop` guarantee](`core::pin`#drop-guarantee)  
 //! > ² [`Drop::drop`: Panics](`Drop`#panics)
+//!
+//! <!-- ← no shade
+//!
+//! > FIXME(Tamschi):
+//! > Downgrading the process abort to a memory leak (in a breaking version change)
+//! > is blocked by [`::typed_arena::Arena`] not having a non-allocating constructor.
+//!
+//! -->
 //!
 //! # Performance Focus
 //!

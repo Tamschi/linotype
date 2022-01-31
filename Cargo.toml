@@ -31,7 +31,7 @@ is-it-maintained-open-issues = { repository = "Tamschi/linotype" }
 maintenance = { status = "experimental" } # This may differ between branches.
 
 [features]
-std = []
+std = [] # Enables better pinned-`Drop`-panic handling.
 
 [dev-dependencies]
 cargo-husky = "1.5.0"

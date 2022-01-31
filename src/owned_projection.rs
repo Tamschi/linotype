@@ -21,7 +21,7 @@ use typed_arena::Arena;
 ///
 /// This type acts as **stable multi-map** from items in the input sequence (or rather: derived stored keys) to mutable stored values.
 ///
-/// **Stored keys and values persist across updates**, as long as the necessary items appear in each sequence to warrant it.
+/// **Stored keys and values persist across reprojections**, as long as the necessary items appear in each sequence to warrant it.
 ///
 /// An [`OwnedProjection`] can be converted into a value-pinning version of itself by through its [`.pin(self)`](`OwnedProjection::pin`) method.  
 /// This pinning variant is still mutable, but won't release stored values by value, always dropping them in place instead.
@@ -206,8 +206,8 @@ impl<K, V> OwnedProjection<K, V> {
 
 	/// **Lazily** updates this map according to a sequence of item, **fallible** selector and **fallible** factory **triples**.
 	///
-	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_try_by_keyed_try_with_keyed<'a: 'b, 'b, T, Q, S, F, I, E>(
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
+	pub fm reproject_try_by_keyed_try_with_keyed<'a: 'b, 'b, T, Q, S, F, I, E>(
 		&'a mut self,
 		items_selectors_factories: I,
 	) -> impl 'b + Iterator<Item = Result<(T, &'a mut V), E>>
@@ -274,8 +274,8 @@ impl<K, V> OwnedProjection<K, V> {
 
 	/// **Lazily** updates this map according to a sequence of items, a **fallible** selector and **fallible** factory.
 	///
-	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_try_by_try_with<'a: 'b, 'b, T, Q, S, F, I, E>(
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
+	pub fm reproject_try_by_try_with<'a: 'b, 'b, T, Q, S, F, I, E>(
 		&'a mut self,
 		items: I,
 		mut selector: S,
@@ -290,7 +290,7 @@ impl<K, V> OwnedProjection<K, V> {
 		I: 'b + IntoIterator<Item = T>,
 		E: 'b,
 	{
-		self.update_try_by_keyed_try_with_keyed(items.into_iter().cohesive_map(move |item| {
+		self.reproject_try_by_keyed_try_with_keyed(items.into_iter().cohesive_map(move |item| {
 			let mut selector = NonNull::from(&mut selector);
 			let mut factory = NonNull::from(&mut factory);
 			(
@@ -313,8 +313,8 @@ impl<K, V> OwnedProjection<K, V> {
 
 	/// **Lazily** updates this map according to a sequence of item, selector and factory **triples**.
 	///
-	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_by_keyed_with_keyed<'a: 'b, 'b, T, Q, S, F, I>(
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
+	pub fm reproject_by_keyed_with_keyed<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items_selectors_factories: I,
 	) -> impl 'b + Iterator<Item = (T, &'a mut V)>
@@ -326,7 +326,7 @@ impl<K, V> OwnedProjection<K, V> {
 		F: 'b + FnOnce(&mut T, &K) -> V,
 		I: 'b + IntoIterator<Item = (T, S, F)>,
 	{
-		self.update_try_by_keyed_try_with_keyed(items_selectors_factories.into_iter().map(
+		self.reproject_try_by_keyed_try_with_keyed(items_selectors_factories.into_iter().map(
 			|(key, selector, factory)| {
 				(
 					key,
@@ -345,8 +345,8 @@ impl<K, V> OwnedProjection<K, V> {
 
 	/// **Lazily** updates this map according to a sequence of items, a selector and a factory.
 	///
-	/// Values that aren't reused are dropped together with the returned iterator or on the next `.update…` method call.
-	pub fn update_by_with<'a: 'b, 'b, T, Q, S, F, I>(
+	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
+	pub fm reproject_by_with<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items: I,
 		mut selector: S,
@@ -360,7 +360,7 @@ impl<K, V> OwnedProjection<K, V> {
 		F: 'b + FnMut(&mut T, &K) -> V,
 		I: 'b + IntoIterator<Item = T>,
 	{
-		self.update_try_by_try_with(
+		self.reproject_try_by_try_with(
 			items,
 			move |item| Ok(selector(item)),
 			move |item, k| Ok(factory(item, k)),

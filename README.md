@@ -52,7 +52,7 @@ Avoids aborting the process if the drop implementation of a key or value inside 
 use linotype::OwnedProjection;
 
 // This is tricky to write as closure except directly as parameter.
-// See the `higher-order-closure` in the dependencies for a workaround.
+// See the `higher-order-closure` crate in the dependencies for a workaround.
 fn selector<'a>(item: &'a mut &'static str) -> &'a str {
   item
 }

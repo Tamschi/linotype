@@ -207,7 +207,7 @@ impl<K, V> OwnedProjection<K, V> {
 	/// **Lazily** updates this map according to a sequence of item, **fallible** selector and **fallible** factory **triples**.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
-	pub fm reproject_try_by_keyed_try_with_keyed<'a: 'b, 'b, T, Q, S, F, I, E>(
+	pub fn reproject_try_by_keyed_try_with_keyed<'a: 'b, 'b, T, Q, S, F, I, E>(
 		&'a mut self,
 		items_selectors_factories: I,
 	) -> impl 'b + Iterator<Item = Result<(T, &'a mut V), E>>
@@ -275,7 +275,7 @@ impl<K, V> OwnedProjection<K, V> {
 	/// **Lazily** updates this map according to a sequence of items, a **fallible** selector and **fallible** factory.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
-	pub fm reproject_try_by_try_with<'a: 'b, 'b, T, Q, S, F, I, E>(
+	pub fn reproject_try_by_try_with<'a: 'b, 'b, T, Q, S, F, I, E>(
 		&'a mut self,
 		items: I,
 		mut selector: S,
@@ -314,7 +314,7 @@ impl<K, V> OwnedProjection<K, V> {
 	/// **Lazily** updates this map according to a sequence of item, selector and factory **triples**.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
-	pub fm reproject_by_keyed_with_keyed<'a: 'b, 'b, T, Q, S, F, I>(
+	pub fn reproject_by_keyed_with_keyed<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items_selectors_factories: I,
 	) -> impl 'b + Iterator<Item = (T, &'a mut V)>
@@ -346,7 +346,7 @@ impl<K, V> OwnedProjection<K, V> {
 	/// **Lazily** updates this map according to a sequence of items, a selector and a factory.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
-	pub fm reproject_by_with<'a: 'b, 'b, T, Q, S, F, I>(
+	pub fn reproject_by_with<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items: I,
 		mut selector: S,

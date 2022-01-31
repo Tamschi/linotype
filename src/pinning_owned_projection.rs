@@ -57,7 +57,7 @@ pub trait PinningOwnedProjection: Sealed {
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
 	#[allow(clippy::type_complexity)]
-	fm reproject_try_by_keyed_try_with_keyed<'a: 'b, 'b, T, Q, S, F, I, E>(
+	fn reproject_try_by_keyed_try_with_keyed<'a: 'b, 'b, T, Q, S, F, I, E>(
 		&'a mut self,
 		items_selectors_factories: I,
 	) -> Box<dyn 'b + Iterator<Item = Result<(T, Pin<&'a mut Self::V>), E>>>
@@ -74,7 +74,7 @@ pub trait PinningOwnedProjection: Sealed {
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
 	#[allow(clippy::type_complexity)]
-	fm reproject_try_by_try_with<'a: 'b, 'b, T, Q, S, F, I, E>(
+	fn reproject_try_by_try_with<'a: 'b, 'b, T, Q, S, F, I, E>(
 		&'a mut self,
 		items: I,
 		selector: S,
@@ -92,7 +92,7 @@ pub trait PinningOwnedProjection: Sealed {
 	/// **Lazily** updates this map according to a sequence of item, selector and factory **triples**.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
-	fm reproject_by_keyed_with_keyed<'a: 'b, 'b, T, Q, S, F, I>(
+	fn reproject_by_keyed_with_keyed<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items_selectors_factories: I,
 	) -> Box<dyn 'b + Iterator<Item = (T, Pin<&'a mut Self::V>)>>
@@ -107,7 +107,7 @@ pub trait PinningOwnedProjection: Sealed {
 	/// **Lazily** updates this map according to a sequence of items, a selector and a factory.
 	///
 	/// Values that aren't reused are dropped together with the returned iterator or on the next `.reproject…` method call.
-	fm reproject_by_with<'a: 'b, 'b, T, Q, S, F, I>(
+	fn reproject_by_with<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items: I,
 		selector: S,
@@ -152,7 +152,7 @@ impl<K, V> PinningOwnedProjection for Pin<OwnedProjection<K, V>> {
 	}
 
 	#[allow(clippy::type_complexity)]
-	fm reproject_try_by_keyed_try_with_keyed<'a: 'b, 'b, T, Q, S, F, I, E>(
+	fn reproject_try_by_keyed_try_with_keyed<'a: 'b, 'b, T, Q, S, F, I, E>(
 		&'a mut self,
 		items_selectors_factories: I,
 	) -> Box<dyn 'b + Iterator<Item = Result<(T, Pin<&'a mut V>), E>>>
@@ -172,7 +172,7 @@ impl<K, V> PinningOwnedProjection for Pin<OwnedProjection<K, V>> {
 	}
 
 	#[allow(clippy::type_complexity)]
-	fm reproject_try_by_try_with<'a: 'b, 'b, T, Q, S, F, I, E>(
+	fn reproject_try_by_try_with<'a: 'b, 'b, T, Q, S, F, I, E>(
 		&'a mut self,
 		items: I,
 		selector: S,
@@ -193,7 +193,7 @@ impl<K, V> PinningOwnedProjection for Pin<OwnedProjection<K, V>> {
 			.pipe(Box::new)
 	}
 
-	fm reproject_by_keyed_with_keyed<'a: 'b, 'b, T, Q, S, F, I>(
+	fn reproject_by_keyed_with_keyed<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items_selectors_factories: I,
 	) -> Box<dyn 'b + Iterator<Item = (T, Pin<&'a mut V>)>>
@@ -211,7 +211,7 @@ impl<K, V> PinningOwnedProjection for Pin<OwnedProjection<K, V>> {
 			.pipe(Box::new)
 	}
 
-	fm reproject_by_with<'a: 'b, 'b, T, Q, S, F, I>(
+	fn reproject_by_with<'a: 'b, 'b, T, Q, S, F, I>(
 		&'a mut self,
 		items: I,
 		selector: S,

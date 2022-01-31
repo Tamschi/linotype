@@ -54,12 +54,12 @@ extern crate alloc;
 extern crate std;
 
 pub mod cohesive_map;
-mod linotype;
-mod pinning_linotype;
+mod owned_projection;
+mod pinning_owned_projection;
 pub mod shunting_map;
 
-pub use self::linotype::OwnedProjection;
-pub use pinning_linotype::PinningOwnedProjection;
+pub use self::owned_projection::OwnedProjection;
+pub use pinning_owned_projection::PinningOwnedProjection;
 
 use alloc::vec::Vec;
 use core::{mem::MaybeUninit, ptr::NonNull};

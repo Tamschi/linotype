@@ -5,7 +5,7 @@
 [![Docs.rs](https://docs.rs/linotype/badge.svg)](https://docs.rs/linotype)
 
 ![Rust 1.56](https://img.shields.io/static/v1?logo=Rust&label=&message=1.56&color=grey)
-[![CI](https://github.com/Tamschi/linotype/workflows/CI/badge.svg?branch=develop)](https://github.com/Tamschi/linotype/actions?query=workflow%3ACI+branch%3Adevelop)
+[![CI](https://github.com/Tamschi/linotype/workflows/CI/badge.svg?branch=unstable)](https://github.com/Tamschi/linotype/actions?query=workflow%3ACI+branch%3Aunstable)
 ![Crates.io - License](https://img.shields.io/crates/l/linotype/0.0.1)
 
 [![GitHub](https://img.shields.io/static/v1?logo=GitHub&label=&message=%20&color=grey)](https://github.com/Tamschi/linotype)

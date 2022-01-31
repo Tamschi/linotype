@@ -22,7 +22,6 @@ include = [
 	"README.md",
 	"SECURITY.md",
 ]
-publish = false
 
 [badges]
 is-it-maintained-issue-resolution = { repository = "Tamschi/linotype" }

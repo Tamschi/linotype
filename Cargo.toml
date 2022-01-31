@@ -3,13 +3,13 @@ name = "linotype"
 version = "0.0.1"
 authors = ["Tamme Schichler <tamme@schichler.dev>"]
 edition = "2021"
-description = "A keyed list reprojector that can optionally pin its values. (A stable-ordered transactionally-incremental indexed map.)"
+description = "A keyed sequence reprojector that can optionally pin its values. (A stable-ordered transactionally-incremental multi-map.)"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Tamschi/linotype"
 homepage = "https://github.com/Tamschi/linotype/tree/v0.0.1"
 documentation = "https://docs.rs/linotype/0.0.1"
-keywords = [] #TODO
-categories = [] #TODO
+keywords = ["data-driven", "stateful", "reprojection", "map", "pin"]
+categories = ["data-structures", "no-std", "rust-patterns"]
 readme = "README.md"
 include = [
 	"**/*.rs",

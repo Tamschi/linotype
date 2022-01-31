@@ -16,12 +16,19 @@
 [![crev reviews](https://web.crev.dev/rust-reviews/badge/crev_count/linotype.svg)](https://web.crev.dev/rust-reviews/crate/linotype/)
 [![Zulip Chat](https://img.shields.io/endpoint?label=chat&url=https%3A%2F%2Fiteration-square-automation.schichler.dev%2F.netlify%2Ffunctions%2Fstream_subscribers_shield%3Fstream%3Dproject%252Flinotype)](https://iteration-square.schichler.dev/#narrow/stream/project.2Flinotype)
 
-A keyed list reprojector that can optionally pin its values.
+A keyed sequence reprojector that can optionally pin its values.
 
-This component can be used to manage item-associated state of a changing sequence, like in dynamically generated lists of stateful GUI components.
-As such, it is optimised for flexible use (requiring only [`Eq`](https://doc.rust-lang.org/stable/std/cmp/trait.Eq.html) for keys, with automatic key cache and flexible lifetimes) and relatively low entry counts.
+It can act as list state reconciliator for data-driven GUIs.
 
-That is: It can act as part of a list state reconciliator for data-driven GUIs.
+More generally speaking, this library can be used to manage item-associated state of a changing sequence.
+
+## Audience
+
+This crate is optimised for flexible use (requiring only [`Eq`](https://doc.rust-lang.org/stable/std/cmp/trait.Eq.html) for keys, with automatic key cache and flexible lifetimes) and relatively low entry counts.
+
+If you're looking to reconcile associated states for a list with many items,
+especially with large changes to the list between reprojections, a different
+approach may be more appropriate.
 
 ## Installation
 
@@ -72,7 +79,7 @@ assert_eq!(reproject(&["a", "b", "c"]), vec![0, 1, 2]);
 assert_eq!(reproject(&["a", "b", "c", "d"]), vec![0, 1, 2, 4]);
 assert_eq!(reproject(&["e", "c", "b", "a"]), vec![5, 2, 1, 0]);
 
-// Update methods for fallible closures and per-item closures are also available.
+// Reprojection methods for fallible closures and per-item closures are also available.
 ```
 
 ## License

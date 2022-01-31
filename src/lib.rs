@@ -1,6 +1,10 @@
-//! A stable transactionally-incremental indexed map that can pin its values.
+//! A keyed sequence reprojector that can optionally pin its values.
 //!
 //! [![Zulip Chat](https://img.shields.io/endpoint?label=chat&url=https%3A%2F%2Fiteration-square-automation.schichler.dev%2F.netlify%2Ffunctions%2Fstream_subscribers_shield%3Fstream%3Dproject%252Flinotype)](https://iteration-square.schichler.dev/#narrow/stream/project.2Flinotype)
+//!
+//! This crate can act as list state reconciliator for data-driven GUIs.
+//!
+//! More generally speaking, it can be used to manage item-associated state of a changing sequence.
 //!
 //! # Features
 //!

@@ -139,7 +139,7 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 impl<K, V> OwnedProjection<K, V> {
 	/// Creates a new non-pinning [`OwnedProjection`] instance.
 	///
-	/// > TODO:
+	/// > FIXME:
 	/// >
 	/// > This can *nearly* be `const`.
 	/// > It may be worthwhile to contribute a second constructor to [`Arena`].

@@ -45,6 +45,8 @@
 //!   This would give access to the [`DoubleEndedIterator`], [`ExactSizeIterator`] and [`FusedIterator`](`core::iter::FusedIterator`) implementations where appropriate.
 //!
 //!   Moving the dynamic call further inwards would likely also improve [`Pin<OwnedProjection>`](`PinningOwnedProjection`#impl-PinningOwnedProjection-for-Pin<OwnedProjection<K%2C%20V>>)'s performance for at least some operations.
+//! 
+//!   <!-- When fixing this, expose the iterators in an `iterators` module noting that they are **not** publicly constructible. -->
 //!
 //! - Use-case coverage isn't great.
 //!
@@ -67,10 +69,10 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-pub mod cohesive_map;
+mod cohesive_map;
 mod owned_projection;
 mod pinning_owned_projection;
-pub mod shunting_map;
+mod shunting_map;
 
 pub use self::owned_projection::OwnedProjection;
 pub use pinning_owned_projection::PinningOwnedProjection;

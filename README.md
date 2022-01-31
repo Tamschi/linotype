@@ -40,11 +40,11 @@ cargo add linotype --features std
 
 ## Features
 
-(See [documentation](https://docs.rs/linotype/0.0.1/#features) for more details.)
+(See [documentation](https://docs.rs/linotype/0.0.1/linotype/#features) for more details.)
 
 ### `"std"`
 
-Avoids aborting the process if the drop implementation of a key or value inside a pinning [`OwnedProjection`](https://docs.rs/linotype/latest/linotype/struct.OwnedProjection.html) panics.
+Avoids aborting the process if the drop implementation of a key or value inside a pinning [`OwnedProjection`](https://docs.rs/linotype/0.0.1/linotype/struct.OwnedProjection.html) panics.
 
 ## Example
 

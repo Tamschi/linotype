@@ -44,7 +44,7 @@ cargo add linotype --features std
 
 ### `"std"`
 
-Avoids aborting the process if the drop implementation of a key or value inside a pinning [`OwnedProjection`] panics.
+Avoids aborting the process if the drop implementation of a key or value inside a pinning [`OwnedProjection`](https://docs.rs/linotype/latest/linotype/struct.OwnedProjection.html) panics.
 
 ## Example
 

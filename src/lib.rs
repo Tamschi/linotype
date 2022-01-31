@@ -45,7 +45,7 @@
 //!   This would give access to the [`DoubleEndedIterator`], [`ExactSizeIterator`] and [`FusedIterator`](`core::iter::FusedIterator`) implementations where appropriate.
 //!
 //!   Moving the dynamic call further inwards would likely also improve [`Pin<OwnedProjection>`](`PinningOwnedProjection`#impl-PinningOwnedProjection-for-Pin<OwnedProjection<K%2C%20V>>)'s performance for at least some operations.
-//! 
+//!
 //!   <!-- When fixing this, expose the iterators in an `iterators` module noting that they are **not** publicly constructible. -->
 //!
 //! - Use-case coverage isn't great.
@@ -53,6 +53,11 @@
 //!   This is mainly due to me right now needing only a (very) limited subset of what this type could in theory support.
 //!
 //!   The most significant omission right now is likely any way to index the collection directly, or to extract entries by value.
+//!
+//! - The stored-key reference `&K` isn't exposed in the output of ongoing reprojections,
+//!   as this reference is too short-lived for the [`Iterator`] trait.
+//!
+//!   This reference could be exposed (e.g. via a `.next_keyed() -> Option<(T, &K, &'b V)>` method) with better return types.
 //!
 //! [Visit the repository](https://github.com/Tamschi/linotype) to file an issue or pull-request.
 #![no_std]

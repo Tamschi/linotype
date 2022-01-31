@@ -18,8 +18,10 @@
 
 A keyed list reprojector that can optionally pin its values.
 
-This component can be used to manage item-associated state of a changing sequence, like in dynamically generated lists of stateful components.
+This component can be used to manage item-associated state of a changing sequence, like in dynamically generated lists of stateful GUI components.
 As such, it is optimised for flexible use (requiring only [`Eq`](https://doc.rust-lang.org/stable/std/cmp/trait.Eq.html) for keys, with automatic key cache and flexible lifetimes) and relatively low entry counts.
+
+That is: It can act as part of a list state reconciliator for data-driven GUIs.
 
 ## Installation
 

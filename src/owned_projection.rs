@@ -93,10 +93,10 @@ fn drop_stale<K, V>(stale: &mut Index<K, V>, dropped: &mut impl Extend<NonNull<V
 /// # Generics Glossary
 ///
 /// - `'a`: Lifetime of the [`OwnedProjection`].
-/// - `'b`: Lifetime of the in-progress update (i.e. the resulting iterator).
+/// - `'b`: Lifetime of the in-progress reprojection (i.e. the returned iterator).
 /// - `K`: (Stored) **K**ey.
 /// - `V`: (Stored) **V**alue.
-/// - `T`: (Input) I**t**em.
+/// - `T`: (Examined) I**t**em.
 /// - `Q: ?Sized`: **Q**uery or **Q**uality, borrowed from `T`.
 /// - `S`: **S**elector, projects `(&mut T) -> &Q`.
 /// - `F`: **F**actory, projects `(&mut T, &K) -> V`.
